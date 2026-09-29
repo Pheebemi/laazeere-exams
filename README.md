@@ -55,7 +55,8 @@ Set in the Vercel project:
 - `RADDAI_API_BASE_URL` — `https://laazeereacademy.com/api`
 - `EXAM_PORTAL_API_KEY` — a long random shared secret, set to the **same value** as `EXAM_PORTAL_API_KEY` on raddai-backend.
 - `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, `DJANGO_CSRF_TRUSTED_ORIGINS` — set to your production domain.
-- `SECURE_SSL_REDIRECT=True`, `SESSION_COOKIE_SECURE=True`, `CSRF_COOKIE_SECURE=True` once served over HTTPS.
+- `SESSION_COOKIE_SECURE=True`, `CSRF_COOKIE_SECURE=True`.
+- Do **not** set `SECURE_SSL_REDIRECT=True` — Vercel already forces HTTPS, and Django here isn't configured to trust Vercel's forwarded-protocol header, so it would see every request as plain HTTP and redirect forever.
 
 **Neon compute autoscaling**: when creating the Neon project, set the compute's autoscaling *max* to what your plan actually provides — don't leave it at a conservative default. This is a Neon console setting (Compute → autoscaling), not something in this repo.
 
