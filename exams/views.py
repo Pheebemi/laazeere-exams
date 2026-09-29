@@ -71,32 +71,45 @@ def exam_list(request):
     rows = []
     for exam in exams:
         submission = existing.get(exam.id)
-        rows.append(
-            {
-                "exam": exam,
-                "is_open": exam.is_open(now),
-                "submission": submission,
-            }
-        )
+        if submission and submission.status == Submission.Status.SUBMITTED:
+            state = "submitted"
+        elif exam.is_open(now):
+            state = "in_progress" if submission else "open"
+        elif now < exam.opens_at:
+            state = "upcoming"
+        else:
+            state = "closed"
+        rows.append({"exam": exam, "submission": submission, "state": state})
 
-    return render(request, "exams/exam_list.html", {"rows": rows})
+    return render(request, "exams/exam_list.html", {"rows": rows, "student": student})
 
 
 @student_required
 def start_exam(request, exam_id):
+    """GET shows what's about to be taken (so a student can't open the wrong CA by
+    accident); the timer only starts on POST, when they confirm."""
     student = request.user.syncedstudent
     exam = _get_student_exam(exam_id, student)
 
+    existing = Submission.objects.filter(student=student, exam=exam).first()
+    if existing and existing.status == Submission.Status.SUBMITTED:
+        return redirect("exams:already_submitted", exam_id=exam.id)
+    if existing:
+        return redirect("exams:take_exam", exam_id=exam.id)
+
     if not exam.is_open():
-        messages.error(request, "This exam is not currently open.")
+        messages.error(request, f"{exam.subject} {exam.get_score_target_display()} is not open right now.")
         return redirect("exams:exam_list")
 
-    submission, _ = Submission.objects.get_or_create(student=student, exam=exam)
+    if request.method == "POST":
+        Submission.objects.get_or_create(student=student, exam=exam)
+        return redirect("exams:take_exam", exam_id=exam.id)
 
-    if submission.status == Submission.Status.SUBMITTED:
-        return redirect("exams:already_submitted", exam_id=exam.id)
-
-    return redirect("exams:take_exam", exam_id=exam.id)
+    return render(request, "exams/start_exam.html", {
+        "exam": exam,
+        "student": student,
+        "question_count": exam.questions.count(),
+    })
 
 
 @student_required

@@ -22,7 +22,7 @@ class ExamForm(forms.ModelForm):
             "closes_at": "Closes at",
         }
         help_texts = {
-            "score_target": "Which score on the main portal this test fills: CA1/CA2/CA3 are out of 10, Exam is out of 70.",
+            "score_target": "Which score on the main portal this test fills: First/Second/Third CA are out of 10, Examination is out of 70.",
         }
         widgets = {
             "opens_at": forms.DateTimeInput(attrs={"type": "datetime-local"}, format=DATETIME_FORMAT),

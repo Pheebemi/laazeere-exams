@@ -1,0 +1,34 @@
+{% extends "layout/base.html" %}
+{% block title %}{{ exam.subject }} {{ exam.get_score_target_display }} — Laazeere Academy Exam Portal{% endblock %}
+{% block content %}
+<section class="max-w-lg mx-auto px-4 sm:px-6 py-12">
+    <a href="{% url 'exams:exam_list' %}" class="text-sm text-muted-foreground hover:text-primary">&larr; Back to your tests</a>
+
+    <div class="card mt-3 overflow-hidden">
+        <div class="px-6 py-5 {% if exam.is_ca %}bg-secondary text-secondary-foreground{% else %}bg-accent text-accent-foreground{% endif %}">
+            <p class="text-xs font-bold uppercase tracking-wider">You are about to take</p>
+            <p class="text-3xl font-extrabold mt-1">{{ exam.get_score_target_display }}</p>
+            <p class="text-lg font-semibold mt-0.5">{{ exam.subject }} &middot; {{ exam.get_term_display }}</p>
+        </div>
+
+        <dl class="grid grid-cols-2 gap-px bg-border border-y">
+            <div class="bg-card px-6 py-4"><dt class="text-xs text-muted-foreground">Class</dt><dd class="font-semibold">{{ exam.klass }}</dd></div>
+            <div class="bg-card px-6 py-4"><dt class="text-xs text-muted-foreground">Total marks</dt><dd class="font-semibold">{{ exam.total_marks }}</dd></div>
+            <div class="bg-card px-6 py-4"><dt class="text-xs text-muted-foreground">Questions</dt><dd class="font-semibold">{{ question_count }}</dd></div>
+            <div class="bg-card px-6 py-4"><dt class="text-xs text-muted-foreground">Time allowed</dt><dd class="font-semibold">{{ exam.duration_minutes }} minutes</dd></div>
+        </dl>
+
+        <div class="px-6 py-5 space-y-5">
+            <ul class="text-sm text-muted-foreground space-y-1.5 list-disc pl-5">
+                <li>The timer starts as soon as you click <span class="font-semibold text-foreground">Begin</span>.</li>
+                <li>You get <span class="font-semibold text-foreground">one attempt</span>. Your answers submit automatically when time runs out.</li>
+                <li>Make sure this is the right {% if exam.is_ca %}CA{% else %}exam{% endif %} before you begin.</li>
+            </ul>
+            <form method="post">
+                {% csrf_token %}
+                <button type="submit" class="btn-primary w-full py-3">Begin {{ exam.get_score_target_display }}</button>
+            </form>
+        </div>
+    </div>
+</section>
+{% endblock %}

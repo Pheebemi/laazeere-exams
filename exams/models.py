@@ -12,10 +12,10 @@ class Exam(models.Model):
         FINAL = "final", "Final Exam"
 
     class ScoreTarget(models.TextChoices):
-        CA1 = "ca1", "CA 1"
-        CA2 = "ca2", "CA 2"
-        CA3 = "ca3", "CA 3"
-        EXAM = "exam", "Exam"
+        CA1 = "ca1", "First CA"
+        CA2 = "ca2", "Second CA"
+        CA3 = "ca3", "Third CA"
+        EXAM = "exam", "Examination"
 
     # Max marks per slot on raddai's Result model — CA slots are out of 10,
     # the exam slot is out of 70. Keeping this here (not hardcoded elsewhere)
@@ -56,6 +56,10 @@ class Exam(models.Model):
     def is_open(self, now=None):
         now = now or timezone.now()
         return self.is_published and self.opens_at <= now <= self.closes_at
+
+    @property
+    def is_ca(self):
+        return self.score_target != self.ScoreTarget.EXAM
 
     @property
     def is_locked(self):

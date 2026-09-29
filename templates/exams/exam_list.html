@@ -2,31 +2,47 @@
 {% block title %}Your Exams — Laazeere Academy Exam Portal{% endblock %}
 {% block content %}
 <section class="max-w-3xl mx-auto px-4 sm:px-6 py-10">
-    <h1 class="text-2xl font-extrabold mb-1">Your Exams</h1>
-    <p class="text-sm text-muted-foreground mb-6">Tests available for your class.</p>
+    <h1 class="text-2xl font-extrabold mb-1">Your Tests &amp; Exams</h1>
+    <p class="text-sm text-muted-foreground mb-6">
+        Showing tests for <span class="font-semibold text-foreground">{{ student.current_class|default:"your class" }}</span> only.
+    </p>
 
     <div class="space-y-3">
         {% for row in rows %}
-        <div class="card p-5 flex items-center justify-between gap-4">
-            <div>
-                <p class="font-semibold">{{ row.exam.subject }}</p>
-                <p class="text-sm text-muted-foreground">{{ row.exam.get_score_target_display }} &middot; {{ row.exam.get_term_display }} &middot; {{ row.exam.duration_minutes }} mins</p>
+        {% with exam=row.exam %}
+        <div class="card p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div class="min-w-0">
+                <span class="inline-block rounded-md px-2.5 py-1 text-xs font-bold uppercase tracking-wide
+                    {% if exam.is_ca %}bg-secondary text-secondary-foreground{% else %}bg-accent text-accent-foreground{% endif %}">
+                    {{ exam.get_score_target_display }}
+                </span>
+                <p class="font-semibold text-lg mt-2">{{ exam.subject }}</p>
+                <p class="text-sm text-muted-foreground">
+                    {{ exam.get_term_display }} &middot; {{ exam.total_marks }} marks &middot; {{ exam.duration_minutes }} mins
+                </p>
             </div>
-            <div class="flex-shrink-0">
-                {% if row.submission.status == "submitted" %}
-                    <span class="inline-flex items-center rounded-full bg-secondary text-secondary-foreground px-3 py-1.5 text-sm font-semibold">
-                        Submitted &middot; {{ row.submission.score }}/{{ row.exam.total_marks }}
+            <div class="shrink-0">
+                {% if row.state == "submitted" %}
+                    <a href="{% url 'exams:already_submitted' exam.id %}" class="inline-flex items-center rounded-full bg-secondary text-secondary-foreground px-3 py-1.5 text-sm font-semibold">
+                        Done &middot; {{ row.submission.score|floatformat:"-2" }}/{{ exam.total_marks }}
+                    </a>
+                {% elif row.state == "in_progress" %}
+                    <a href="{% url 'exams:take_exam' exam.id %}" class="btn-primary">Continue</a>
+                {% elif row.state == "open" %}
+                    <a href="{% url 'exams:start_exam' exam.id %}" class="btn-primary">Start</a>
+                {% elif row.state == "upcoming" %}
+                    <span class="inline-flex items-center rounded-full bg-muted text-muted-foreground px-3 py-1.5 text-sm font-medium">
+                        Opens {{ exam.opens_at|date:"D j M, g:i A" }}
                     </span>
-                {% elif row.is_open %}
-                    <a href="{% url 'exams:start_exam' row.exam.id %}" class="btn-primary">{% if row.submission %}Continue{% else %}Start{% endif %}</a>
                 {% else %}
-                    <span class="inline-flex items-center rounded-full bg-muted text-muted-foreground px-3 py-1.5 text-sm font-medium">Not open</span>
+                    <span class="inline-flex items-center rounded-full bg-muted text-muted-foreground px-3 py-1.5 text-sm font-medium">Closed</span>
                 {% endif %}
             </div>
         </div>
+        {% endwith %}
         {% empty %}
         <div class="card p-10 text-center text-muted-foreground">
-            No exams are available for your class right now.
+            No tests or exams have been set for your class yet.
         </div>
         {% endfor %}
     </div>

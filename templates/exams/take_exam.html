@@ -4,8 +4,12 @@
 <section class="max-w-2xl mx-auto px-4 sm:px-6 py-8">
     <div class="flex items-center justify-between mb-6 sticky top-16 bg-background/95 backdrop-blur py-3 z-30">
         <div>
-            <h1 class="text-xl font-extrabold">{{ exam.subject }}</h1>
-            <p class="text-sm text-muted-foreground">{{ exam.get_score_target_display }} &middot; {{ exam.total_marks }} marks</p>
+            <span class="inline-block rounded-md px-2 py-0.5 text-xs font-bold uppercase tracking-wide
+                {% if exam.is_ca %}bg-secondary text-secondary-foreground{% else %}bg-accent text-accent-foreground{% endif %}">
+                {{ exam.get_score_target_display }}
+            </span>
+            <h1 class="text-xl font-extrabold mt-1">{{ exam.subject }}</h1>
+            <p class="text-sm text-muted-foreground">{{ exam.get_term_display }} &middot; {{ exam.total_marks }} marks</p>
         </div>
         <div id="timer" class="text-lg font-bold text-primary bg-secondary rounded-lg px-4 py-2 tabular-nums">--:--</div>
     </div>
