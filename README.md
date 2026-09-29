@@ -32,7 +32,7 @@ python manage.py sync_roster --apply            # actually writes it
 python manage.py sync_roster --academic-year 13 --apply   # scope to one raddai academic year id
 ```
 
-Run this on a schedule (Vercel Cron if the plan's limits allow it — verify current limits first, they've shifted over time — or a GitHub Actions scheduled workflow as a guaranteed fallback) or manually before a term's exams start.
+**On Vercel, every deploy runs `sync_roster --apply` as the last build step** (see `vercel.json`) — there's no shell on Vercel, and a first sync of ~600 students takes a few minutes (each new account's password hash is deliberately slow), far past a serverless request's 60s limit but fine inside a build. So to pull new students/staff from the main portal, click **Redeploy** on the Vercel project. If the sync fails (e.g. raddai-backend is down or the key is wrong), the build logs it and still deploys with the roster it already had.
 
 ## Creating an exam
 
