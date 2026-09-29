@@ -151,6 +151,10 @@ class Submission(models.Model):
     score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     pushed_to_raddai = models.BooleanField(default=False)
     pushed_at = models.DateTimeField(null=True, blank=True)
+    # Last failed push, shown to management and used to retry failures after
+    # everything else so a few bad rows can't block the rest.
+    push_error = models.TextField(blank=True, default="")
+    push_failed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         unique_together = ["student", "exam"]

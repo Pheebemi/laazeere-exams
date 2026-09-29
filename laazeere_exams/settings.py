@@ -118,8 +118,16 @@ CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.db.DatabaseCache",
         "LOCATION": "django_cache",
+        # One login counter per student/staff ID; room for the whole school
+        # logging in within one window without culling live counters.
+        "OPTIONS": {"MAX_ENTRIES": 5000},
     }
 }
+
+# If a login counter can't be read or written (a DB hiccup under exam-start
+# load), let the login through rather than telling a student "too many
+# attempts" — the counter only exists to slow down password guessing.
+RATELIMIT_FAIL_OPEN = True
 
 
 # The default hasher stays first (preferred); the starter hasher only exists

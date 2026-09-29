@@ -16,10 +16,11 @@ def grade_submission(submission):
     return total
 
 
-def push_submission_to_raddai(submission):
+def push_submission_to_raddai(submission, timeout=30):
     """
     Push a graded submission's score into the matching Result slot on
-    raddai-backend. Returns (success, error_message).
+    raddai-backend. Returns (success, error_message); a failure is also
+    recorded on the submission.
     """
     student = submission.student
     exam = submission.exam
@@ -38,19 +39,28 @@ def push_submission_to_raddai(submission):
             f"{settings.RADDAI_API_BASE_URL}/exam-portal/results/",
             json=payload,
             headers={"X-Exam-Portal-Key": settings.EXAM_PORTAL_API_KEY},
-            timeout=30,
+            timeout=timeout,
         )
     except requests.RequestException as exc:
-        return False, str(exc)
+        return _record_push_failure(submission, str(exc))
 
     if response.status_code >= 400:
         try:
             detail = response.json().get("error", response.text)
         except ValueError:
             detail = response.text
-        return False, detail
+        return _record_push_failure(submission, detail)
 
     submission.pushed_to_raddai = True
     submission.pushed_at = timezone.now()
-    submission.save(update_fields=["pushed_to_raddai", "pushed_at"])
+    submission.push_error = ""
+    submission.push_failed_at = None
+    submission.save(update_fields=["pushed_to_raddai", "pushed_at", "push_error", "push_failed_at"])
     return True, None
+
+
+def _record_push_failure(submission, error):
+    submission.push_error = str(error)[:500]
+    submission.push_failed_at = timezone.now()
+    submission.save(update_fields=["push_error", "push_failed_at"])
+    return False, error

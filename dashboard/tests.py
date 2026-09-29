@@ -245,7 +245,7 @@ class ManagementTests(AuthoringTestBase):
         submission.status = Submission.Status.SUBMITTED
         submission.save()
         response = self.client.post(reverse("dashboard:push_all"), follow=True)
-        push.assert_called_once_with(submission)
+        push.assert_called_once_with(submission, timeout=10)
         self.assertContains(response, "Pushed 1 result to the main portal.")
 
     def test_management_pages_load(self):
@@ -272,3 +272,45 @@ class ChangePasswordTests(AuthoringTestBase):
     def test_student_side_does_not_advertise_staff_login(self):
         self.client.logout()
         self.assertNotContains(self.client.get(reverse("exams:student_login")), reverse("dashboard:staff_login"))
+
+
+class PushFailureTests(AuthoringTestBase):
+    def setUp(self):
+        super().setUp()
+        self.first = self.start_submission()
+        self.first.status = Submission.Status.SUBMITTED
+        self.first.score = 10
+        self.first.save()
+
+    @mock.patch("exams.services.requests.post")
+    def test_failure_is_recorded_and_cleared_on_success(self, post):
+        from exams.services import push_submission_to_raddai
+
+        post.return_value.status_code = 404
+        post.return_value.json.return_value = {"error": "Student not found"}
+        self.assertEqual(push_submission_to_raddai(self.first, timeout=5), (False, "Student not found"))
+        self.assertEqual(post.call_args.kwargs["timeout"], 5)
+        self.first.refresh_from_db()
+        self.assertEqual(self.first.push_error, "Student not found")
+        self.assertIsNotNone(self.first.push_failed_at)
+
+        post.return_value.status_code = 200
+        self.assertEqual(push_submission_to_raddai(self.first), (True, None))
+        self.first.refresh_from_db()
+        self.assertTrue(self.first.pushed_to_raddai)
+        self.assertEqual((self.first.push_error, self.first.push_failed_at), ("", None))
+
+    def test_earlier_failures_are_retried_after_everything_else(self):
+        self.first.push_failed_at = timezone.now()
+        self.first.save()
+        other_user = User.objects.create_user(username="STU2", password="pw")
+        other_student = SyncedStudent.objects.create(
+            raddai_id=2, student_id="STU2", full_name="Second", current_class=self.klass, user=other_user
+        )
+        second = Submission.objects.create(student=other_student, exam=self.exam, status=Submission.Status.SUBMITTED, score=5)
+
+        self.login_as_manager()
+        with mock.patch("dashboard.views.push_submission_to_raddai", return_value=(True, None)) as push:
+            self.client.post(reverse("dashboard:push_all"))
+        self.assertEqual([c.args[0].pk for c in push.call_args_list], [second.pk, self.first.pk])
+        self.assertEqual(push.call_args.kwargs["timeout"], 10)

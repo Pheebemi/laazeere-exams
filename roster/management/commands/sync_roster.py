@@ -22,11 +22,31 @@ from roster.models import (
 User = get_user_model()
 
 
-def _new_user(username, **extra):
+def _new_user(username, is_active, **extra):
     """New account whose starter password is its own username — see core/hashers.py for why the fast hasher."""
     return User.objects.create(
-        username=username, password=make_password(username, hasher=StarterPasswordHasher.algorithm), **extra
+        username=username,
+        password=make_password(username, hasher=StarterPasswordHasher.algorithm),
+        is_active=is_active,
+        **extra,
     )
+
+
+def _username_taken(username, by_other_than=None):
+    accounts = User.objects.filter(username=username)
+    if by_other_than is not None:
+        accounts = accounts.exclude(pk=by_other_than.pk)
+    return accounts.exists()
+
+
+def _save_person(existing, fields, username):
+    """Apply synced fields to a student/staff/manager row and keep its login account in step with it."""
+    for k, v in fields.items():
+        setattr(existing, k, v)
+    existing.save()
+    existing.user.username = username
+    existing.user.is_active = fields["is_active"]
+    existing.user.save(update_fields=["username", "is_active"])
 
 
 class Command(BaseCommand):
@@ -157,104 +177,121 @@ class Command(BaseCommand):
                     SyncedSubject.objects.create(raddai_id=row["id"], **fields)
         self.stdout.write(f"subjects: {created} to create, {updated} to update\n")
 
+    def _skip_clash(self, kind, username, full_name):
+        """
+        Two people can't share a login name. Skip the newcomer (never merge them
+        into, or rename them onto, someone else's account) and carry on — one
+        clash must not abort the whole sync.
+        """
+        self.stdout.write(
+            f"  [{kind}] skip: {full_name} — login name {username} is already used by another account"
+        )
+
     def _sync_students(self, rows, class_map, apply):
-        created = updated = 0
+        created = updated = skipped = 0
         for row in rows:
             class_pk = class_map.get(row.get("current_class_id"))
             if class_pk is None and row.get("current_class_id") and apply:
                 cls = SyncedClass.objects.filter(raddai_id=row["current_class_id"]).first()
                 class_pk = cls.pk if cls else None
 
-            existing = SyncedStudent.objects.filter(raddai_id=row["id"]).first()
+            existing = SyncedStudent.objects.select_related("user").filter(raddai_id=row["id"]).first()
+            username = row["student_id"]
             fields = {
-                "student_id": row["student_id"],
+                "student_id": username,
                 "full_name": row["full_name"],
                 "current_class_id": class_pk,
                 "is_active": row.get("is_active", True),
             }
             if existing:
-                changed = any(getattr(existing, k) != v for k, v in fields.items() if k != "current_class_id") or (
-                    existing.current_class_id != class_pk
-                )
-                if changed:
-                    updated += 1
-                    self.stdout.write(f"  [student] update: {row['full_name']} ({row['student_id']})")
-                    if apply:
-                        for k, v in fields.items():
-                            setattr(existing, k, v)
-                        existing.save()
-                        existing.user.is_active = fields["is_active"]
-                        existing.user.save(update_fields=["is_active"])
+                if not any(getattr(existing, k) != v for k, v in fields.items()):
+                    continue
+                if _username_taken(username, by_other_than=existing.user):
+                    skipped += 1
+                    self._skip_clash("student", username, row["full_name"])
+                    continue
+                updated += 1
+                self.stdout.write(f"  [student] update: {row['full_name']} ({username})")
+                if apply:
+                    _save_person(existing, fields, username)
+            elif _username_taken(username):
+                skipped += 1
+                self._skip_clash("student", username, row["full_name"])
             else:
                 created += 1
-                self.stdout.write(f"  [student] create: {row['full_name']} ({row['student_id']})")
+                self.stdout.write(f"  [student] create: {row['full_name']} ({username})")
                 if apply:
-                    user = _new_user(row["student_id"])
+                    user = _new_user(username, fields["is_active"])
                     SyncedStudent.objects.create(raddai_id=row["id"], user=user, **fields)
-        self.stdout.write(f"students: {created} to create, {updated} to update\n")
+        self.stdout.write(f"students: {created} to create, {updated} to update, {skipped} skipped\n")
 
     def _sync_staff(self, rows, apply):
-        created = updated = 0
+        created = updated = skipped = 0
         for row in rows:
-            existing = SyncedStaff.objects.filter(raddai_id=row["id"]).first()
+            existing = SyncedStaff.objects.select_related("user").filter(raddai_id=row["id"]).first()
+            username = row["staff_id"]
             fields = {
-                "staff_id": row["staff_id"],
+                "staff_id": username,
                 "full_name": row["full_name"],
                 "designation": row.get("designation") or "",
                 "is_active": row.get("is_active", True),
             }
             if existing:
-                changed = any(getattr(existing, k) != v for k, v in fields.items())
-                if changed:
-                    updated += 1
-                    self.stdout.write(f"  [staff] update: {row['full_name']} ({row['staff_id']})")
-                    if apply:
-                        for k, v in fields.items():
-                            setattr(existing, k, v)
-                        existing.save()
-                        existing.user.is_active = fields["is_active"]
-                        existing.user.save(update_fields=["is_active"])
+                if not any(getattr(existing, k) != v for k, v in fields.items()):
+                    continue
+                if _username_taken(username, by_other_than=existing.user):
+                    skipped += 1
+                    self._skip_clash("staff", username, row["full_name"])
+                    continue
+                updated += 1
+                self.stdout.write(f"  [staff] update: {row['full_name']} ({username})")
+                if apply:
+                    _save_person(existing, fields, username)
+            elif _username_taken(username):
+                skipped += 1
+                self._skip_clash("staff", username, row["full_name"])
             else:
                 created += 1
-                self.stdout.write(f"  [staff] create: {row['full_name']} ({row['staff_id']})")
+                self.stdout.write(f"  [staff] create: {row['full_name']} ({username})")
                 if apply:
-                    user = _new_user(row["staff_id"], is_staff=True)
+                    user = _new_user(username, fields["is_active"], is_staff=True)
                     SyncedStaff.objects.create(raddai_id=row["id"], user=user, **fields)
-        self.stdout.write(f"staff: {created} to create, {updated} to update\n")
+        self.stdout.write(f"staff: {created} to create, {updated} to update, {skipped} skipped\n")
 
     def _sync_managers(self, rows, apply):
         created = updated = removed = skipped = 0
         seen = set()
         for row in rows:
             seen.add(row["id"])
-            existing = SyncedManager.objects.filter(raddai_id=row["id"]).first()
+            existing = SyncedManager.objects.select_related("user").filter(raddai_id=row["id"]).first()
+            username = row["username"]
             fields = {
-                "username": row["username"],
+                "username": username,
                 "full_name": row["full_name"],
                 "role": row.get("role") or "",
                 "is_active": row.get("is_active", True),
             }
             if existing:
-                changed = any(getattr(existing, k) != v for k, v in fields.items())
-                if changed:
-                    updated += 1
-                    self.stdout.write(f"  [manager] update: {row['full_name']} ({row['username']})")
-                    if apply:
-                        for k, v in fields.items():
-                            setattr(existing, k, v)
-                        existing.save()
-                        existing.user.is_active = fields["is_active"]
-                        existing.user.save(update_fields=["is_active"])
-            elif User.objects.filter(username=row["username"]).exists():
-                # A student/staff ID that happens to equal a manager's username — never
-                # hand an existing account management rights by accident.
+                if not any(getattr(existing, k) != v for k, v in fields.items()):
+                    continue
+                if _username_taken(username, by_other_than=existing.user):
+                    skipped += 1
+                    self._skip_clash("manager", username, row["full_name"])
+                    continue
+                updated += 1
+                self.stdout.write(f"  [manager] update: {row['full_name']} ({username})")
+                if apply:
+                    _save_person(existing, fields, username)
+            elif _username_taken(username):
+                # e.g. a student/staff ID equal to a manager's username — never hand an
+                # existing account management rights by accident.
                 skipped += 1
-                self.stdout.write(f"  [manager] skip: username {row['username']} is already used by another account")
+                self._skip_clash("manager", username, row["full_name"])
             else:
                 created += 1
-                self.stdout.write(f"  [manager] create: {row['full_name']} ({row['username']})")
+                self.stdout.write(f"  [manager] create: {row['full_name']} ({username})")
                 if apply:
-                    user = _new_user(row["username"])
+                    user = _new_user(username, fields["is_active"])
                     SyncedManager.objects.create(raddai_id=row["id"], user=user, **fields)
 
         # Someone who is no longer Management/Admin on the main portal must lose

@@ -28,7 +28,10 @@ def _get_student_exam(exam_id, student, require_published=True):
     return exam
 
 
-@ratelimit(key="ip", rate="30/m", method="POST", block=False)
+# Limited per student ID, not per IP: a whole computer lab shares one public
+# IP (and behind Vercel's proxy the IP may not even be the student's), so an
+# IP limit would lock out most of a class logging in at the start of an exam.
+@ratelimit(key="post:username", rate="10/m", method="POST", block=False)
 def student_login(request):
     if getattr(request, "limited", False):
         messages.error(request, "Too many login attempts. Please wait a moment and try again.")
@@ -40,8 +43,6 @@ def student_login(request):
         user = authenticate(request, username=username, password=password)
         if user is not None and hasattr(user, "syncedstudent"):
             login(request, user)
-            if user.syncedstudent.must_change_password:
-                messages.info(request, "Please change your password before continuing.")
             return redirect("exams:exam_list")
         messages.error(request, "Invalid student ID or password.")
 

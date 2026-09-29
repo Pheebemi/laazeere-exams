@@ -9,7 +9,7 @@ from django.contrib.auth.forms import PasswordChangeForm
 from django.core.management import call_command
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Count, Max, Q
+from django.db.models import Count, F, Max, Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -25,9 +25,12 @@ from .decorators import dashboard_required, is_manager, is_teacher, management_r
 from .forms import ExamForm, QuestionForm
 
 # Each push is one HTTP call to the main portal, so a big class can take a
-# while. Stop well inside Vercel's 60s function limit; pushing is idempotent,
-# so whatever is left goes out on the next click.
+# while. No new push starts after the budget, and each one waits at most
+# PUSH_REQUEST_TIMEOUT_SECONDS, so a click always ends inside Vercel's 60s
+# function limit; pushing is idempotent, so whatever is left goes out on the
+# next click.
 PUSH_TIME_BUDGET_SECONDS = 40
+PUSH_REQUEST_TIMEOUT_SECONDS = 10
 
 EXAM_RELATED = ("subject", "klass", "created_by__syncedstaff", "created_by__syncedmanager")
 
@@ -74,7 +77,8 @@ def _unpushed_submissions():
 # --- Auth -------------------------------------------------------------------
 
 
-@ratelimit(key="ip", rate="5/m", method="POST", block=False)
+# Per account, not per IP — staff share the school's connection too (see exams.views.student_login).
+@ratelimit(key="post:username", rate="10/m", method="POST", block=False)
 def staff_login(request):
     if request.user.is_authenticated and (is_manager(request.user) or is_teacher(request.user)):
         return redirect("dashboard:home")
@@ -211,8 +215,11 @@ def exam_results(request, exam_id):
 
 
 def _push_submissions(request, submissions):
+    # Never-failed first, then the oldest failures — so a few rows the main
+    # portal keeps rejecting can't use up every click's time budget.
     submissions = list(
-        submissions.select_related("student", "exam__subject", "exam__academic_year").order_by("id")
+        submissions.select_related("student", "exam__subject", "exam__academic_year")
+        .order_by(F("push_failed_at").asc(nulls_first=True), "id")
     )
     if not submissions:
         messages.info(request, "Nothing to push — every submitted result is already on the main portal.")
@@ -225,7 +232,7 @@ def _push_submissions(request, submissions):
         if time.monotonic() > deadline:
             break
         attempted += 1
-        success, error = push_submission_to_raddai(submission)
+        success, error = push_submission_to_raddai(submission, timeout=PUSH_REQUEST_TIMEOUT_SECONDS)
         if success:
             pushed += 1
         else:
