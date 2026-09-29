@@ -44,14 +44,21 @@ def exam_monitor_list(request):
 @staff_required
 def exam_monitor(request, exam_id):
     exam = get_object_or_404(Exam, pk=exam_id)
-    counts = Submission.objects.filter(exam=exam).values("status").annotate(count=Count("id"))
+    counts = dict(
+        Submission.objects.filter(exam=exam).values_list("status").annotate(count=Count("id"))
+    )
     unpushed_count = Submission.objects.filter(
         exam=exam, status=Submission.Status.SUBMITTED, pushed_to_raddai=False
     ).count()
     return render(
         request,
         "dashboard/exam_monitor.html",
-        {"exam": exam, "counts": counts, "unpushed_count": unpushed_count},
+        {
+            "exam": exam,
+            "in_progress_count": counts.get(Submission.Status.IN_PROGRESS, 0),
+            "submitted_count": counts.get(Submission.Status.SUBMITTED, 0),
+            "unpushed_count": unpushed_count,
+        },
     )
 
 

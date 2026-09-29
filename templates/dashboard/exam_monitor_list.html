@@ -1,12 +1,46 @@
-{% extends "base.html" %}
+{% extends "layout/base.html" %}
+{% block title %}Dashboard — Laazeere Academy Exam Portal{% endblock %}
 {% block content %}
-<h1>Exams</h1>
-<form method="post" action="{% url 'dashboard:staff_logout' %}">{% csrf_token %}<button type="submit">Log out</button></form>
-<ul>
-  {% for exam in exams %}
-    <li><a href="{% url 'dashboard:exam_monitor' exam.id %}">{{ exam.subject }} — {{ exam.klass }} — {{ exam.get_score_target_display }}</a></li>
-  {% empty %}
-    <li>No exams yet. Add one in <a href="/admin/exams/exam/add/">the admin</a>.</li>
-  {% endfor %}
-</ul>
+<section class="max-w-4xl mx-auto px-4 sm:px-6 py-10">
+    <div class="flex items-center justify-between mb-6 gap-4">
+        <div>
+            <h1 class="text-2xl font-extrabold">Exams</h1>
+            <p class="text-sm text-muted-foreground">Monitor submissions and push results to the main portal.</p>
+        </div>
+        <a href="/admin/exams/exam/add/" class="btn-primary">+ New Exam</a>
+    </div>
+
+    <div class="card overflow-hidden">
+        <table class="w-full text-sm">
+            <thead class="bg-muted text-muted-foreground text-left">
+                <tr>
+                    <th class="px-4 py-3 font-semibold">Subject</th>
+                    <th class="px-4 py-3 font-semibold">Class</th>
+                    <th class="px-4 py-3 font-semibold">Slot</th>
+                    <th class="px-4 py-3 font-semibold">Opens</th>
+                    <th class="px-4 py-3 font-semibold">Status</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y">
+                {% for exam in exams %}
+                <tr class="hover:bg-muted/50">
+                    <td class="px-4 py-3 font-medium"><a href="{% url 'dashboard:exam_monitor' exam.id %}" class="text-primary hover:underline">{{ exam.subject }}</a></td>
+                    <td class="px-4 py-3">{{ exam.klass }}</td>
+                    <td class="px-4 py-3">{{ exam.get_score_target_display }}</td>
+                    <td class="px-4 py-3 text-muted-foreground">{{ exam.opens_at|date:"M j, g:i A" }}</td>
+                    <td class="px-4 py-3">
+                        {% if exam.is_published %}
+                        <span class="rounded-full bg-secondary text-secondary-foreground px-2.5 py-1 text-xs font-semibold">Published</span>
+                        {% else %}
+                        <span class="rounded-full bg-accent text-accent-foreground px-2.5 py-1 text-xs font-semibold">Draft</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="5" class="px-4 py-10 text-center text-muted-foreground">No exams yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
 {% endblock %}
