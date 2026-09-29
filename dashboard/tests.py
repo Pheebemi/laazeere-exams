@@ -1,4 +1,5 @@
 from datetime import timedelta
+from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -6,7 +7,9 @@ from django.urls import reverse
 from django.utils import timezone
 
 from exams.models import Exam, Submission
-from roster.models import SyncedAcademicYear, SyncedClass, SyncedStaff, SyncedStudent, SyncedSubject
+from roster.models import (
+    SyncedAcademicYear, SyncedClass, SyncedManager, SyncedStaff, SyncedStudent, SyncedSubject,
+)
 
 User = get_user_model()
 
@@ -19,15 +22,23 @@ class AuthoringTestBase(TestCase):
         self.klass = SyncedClass.objects.create(raddai_id=1, name="JSS1 A", grade=7, section="A", academic_year=self.year)
         self.subject = SyncedSubject.objects.create(raddai_id=1, name="Mathematics")
 
-        staff_user = User.objects.create_user(username="STAFF1", password="pw", is_staff=True)
-        SyncedStaff.objects.create(raddai_id=1, staff_id="STAFF1", full_name="Teacher", user=staff_user)
+        self.teacher = User.objects.create_user(username="STAFF1", password="pw", is_staff=True)
+        SyncedStaff.objects.create(raddai_id=1, staff_id="STAFF1", full_name="Teacher", user=self.teacher)
         self.client.login(username="STAFF1", password="pw")
 
         now = timezone.now()
         self.exam = Exam.objects.create(
             subject=self.subject, klass=self.klass, academic_year=self.year, term="first",
             score_target="ca1", opens_at=now - timedelta(hours=1), closes_at=now + timedelta(hours=2),
+            created_by=self.teacher,
         )
+
+    def login_as_manager(self):
+        manager = User.objects.create_user(username="bursar", password="pw")
+        SyncedManager.objects.create(raddai_id=1, username="bursar", full_name="Mrs Bursar", role="management", user=manager)
+        self.client.logout()
+        self.client.login(username="bursar", password="pw")
+        return manager
 
     def add_question(self, marks, correct=2, text="Q?"):
         return self.client.post(reverse("dashboard:question_add", args=[self.exam.id]), {
@@ -56,6 +67,7 @@ class ExamCreateTests(AuthoringTestBase):
         self.assertRedirects(response, reverse("dashboard:exam_edit", args=[exam.id]))
         self.assertEqual(exam.total_marks, 70)
         self.assertFalse(exam.is_published)
+        self.assertEqual(exam.created_by, self.teacher)
 
     def test_rejects_closing_before_opening(self):
         now = timezone.localtime()
@@ -104,6 +116,7 @@ class QuestionTests(AuthoringTestBase):
 
 class PublishTests(AuthoringTestBase):
     def test_cannot_publish_until_marks_add_up(self):
+        self.login_as_manager()
         self.add_question(marks=4)
         self.client.post(reverse("dashboard:exam_toggle_publish", args=[self.exam.id]))
         self.exam.refresh_from_db()
@@ -163,3 +176,99 @@ class AccessTests(AuthoringTestBase):
         self.client.login(username="STU9", password="pw")
         response = self.client.get(reverse("dashboard:exam_create"))
         self.assertRedirects(response, reverse("dashboard:staff_login"))
+
+
+class TeacherPermissionTests(AuthoringTestBase):
+    """Teachers write exams; management publishes them and pushes results."""
+
+    def setUp(self):
+        super().setUp()
+        self.add_question(marks=10)
+
+    def test_teacher_cannot_publish(self):
+        response = self.client.post(reverse("dashboard:exam_toggle_publish", args=[self.exam.id]))
+        self.assertRedirects(response, reverse("dashboard:home"))
+        self.exam.refresh_from_db()
+        self.assertFalse(self.exam.is_published)
+
+    @mock.patch("dashboard.views.push_submission_to_raddai")
+    def test_teacher_cannot_push(self, push):
+        submission = self.start_submission()
+        submission.status = Submission.Status.SUBMITTED
+        submission.save()
+        self.client.post(reverse("dashboard:push_results", args=[self.exam.id]))
+        self.client.post(reverse("dashboard:push_all"))
+        push.assert_not_called()
+
+    def test_teacher_cannot_see_another_teachers_exam(self):
+        other = User.objects.create_user(username="STAFF2", password="pw")
+        SyncedStaff.objects.create(raddai_id=2, staff_id="STAFF2", full_name="Other", user=other)
+        self.exam.created_by = other
+        self.exam.save()
+        self.assertEqual(self.client.get(reverse("dashboard:exam_edit", args=[self.exam.id])).status_code, 404)
+        self.assertNotContains(self.client.get(reverse("dashboard:exam_list")), "Mathematics")
+
+    def test_teacher_cannot_change_a_published_exam(self):
+        self.exam.is_published = True
+        self.exam.save()
+        self.add_question(marks=1)
+        self.client.post(reverse("dashboard:exam_delete", args=[self.exam.id]))
+        self.assertEqual(self.exam.questions.count(), 1)
+        self.assertTrue(Exam.objects.filter(pk=self.exam.pk).exists())
+
+    def test_teacher_cannot_open_management_pages(self):
+        for name in ("results", "students", "staff"):
+            self.assertRedirects(self.client.get(reverse(f"dashboard:{name}")), reverse("dashboard:home"))
+
+
+class ManagementTests(AuthoringTestBase):
+    def setUp(self):
+        super().setUp()
+        self.add_question(marks=10)
+        self.login_as_manager()
+
+    def test_manager_logs_in_to_the_management_dashboard(self):
+        self.client.logout()
+        response = self.client.post(reverse("dashboard:staff_login"), {"username": "bursar", "password": "pw"}, follow=True)
+        self.assertContains(response, "Push results")
+        self.assertContains(response, "Staff & management")
+
+    def test_manager_sees_every_exam_and_can_publish(self):
+        self.assertContains(self.client.get(reverse("dashboard:exam_list")), "Mathematics")
+        self.client.post(reverse("dashboard:exam_toggle_publish", args=[self.exam.id]))
+        self.exam.refresh_from_db()
+        self.assertTrue(self.exam.is_published)
+
+    @mock.patch("dashboard.views.push_submission_to_raddai", return_value=(True, None))
+    def test_push_all_sends_only_submitted_unpushed_scripts(self, push):
+        submission = self.start_submission()
+        submission.status = Submission.Status.SUBMITTED
+        submission.save()
+        response = self.client.post(reverse("dashboard:push_all"), follow=True)
+        push.assert_called_once_with(submission)
+        self.assertContains(response, "Pushed 1 result to the main portal.")
+
+    def test_management_pages_load(self):
+        self.start_submission()
+        for name in ("home", "results", "students", "staff", "exam_list"):
+            self.assertEqual(self.client.get(reverse(f"dashboard:{name}")).status_code, 200, name)
+        self.assertContains(self.client.get(reverse("dashboard:students")), "STU1")
+
+    def test_disabled_manager_loses_access(self):
+        SyncedManager.objects.update(is_active=False)
+        self.assertRedirects(self.client.get(reverse("dashboard:home")), reverse("dashboard:staff_login"))
+
+
+class ChangePasswordTests(AuthoringTestBase):
+    def test_changing_password_clears_the_starter_flag(self):
+        response = self.client.post(reverse("dashboard:change_password"), {
+            "old_password": "pw", "new_password1": "a-much-better-pass-42", "new_password2": "a-much-better-pass-42",
+        })
+        self.assertRedirects(response, reverse("dashboard:home"))
+        self.assertFalse(SyncedStaff.objects.get().must_change_password)
+        self.client.logout()
+        self.assertTrue(self.client.login(username="STAFF1", password="a-much-better-pass-42"))
+
+    def test_student_side_does_not_advertise_staff_login(self):
+        self.client.logout()
+        self.assertNotContains(self.client.get(reverse("exams:student_login")), reverse("dashboard:staff_login"))

@@ -1,22 +1,84 @@
+import re
+import time
+from io import StringIO
+
 from django.contrib import messages
-from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.forms import PasswordChangeForm
+from django.core.management import call_command
+from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Count, Max
+from django.db.models import Count, Max, Q
+from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 from django_ratelimit.decorators import ratelimit
 
 from exams.models import Choice, Exam, Question, Submission
 from exams.services import push_submission_to_raddai
+from roster.models import SyncedClass, SyncedManager, SyncedStaff, SyncedStudent
 
-from .decorators import staff_required
+from .decorators import dashboard_required, is_manager, is_teacher, management_required
 from .forms import ExamForm, QuestionForm
+
+# Each push is one HTTP call to the main portal, so a big class can take a
+# while. Stop well inside Vercel's 60s function limit; pushing is idempotent,
+# so whatever is left goes out on the next click.
+PUSH_TIME_BUDGET_SECONDS = 40
+
+EXAM_RELATED = ("subject", "klass", "created_by__syncedstaff", "created_by__syncedmanager")
+
+
+def _render(request, template, section, context=None, status=200):
+    """`section` tells the sidebar which item to highlight."""
+    return render(request, template, {**(context or {}), "section": section}, status=status)
+
+
+def _visible_exams(user):
+    """Management sees every exam; a teacher sees only the ones they created."""
+    if is_manager(user):
+        return Exam.objects.all()
+    return Exam.objects.filter(created_by=user)
+
+
+def _get_exam(request, exam_id):
+    try:
+        return _visible_exams(request.user).select_related(*EXAM_RELATED).get(pk=exam_id)
+    except Exam.DoesNotExist:
+        raise Http404("Exam not found")
+
+
+def _can_edit(user, exam):
+    """Once management publishes an exam, only management can change it."""
+    return is_manager(user) or not exam.is_published
+
+
+def _edit_blocked(request, exam, questions=False):
+    """A redirect explaining why this change isn't allowed right now, or None if it is."""
+    if not _can_edit(request.user, exam):
+        messages.error(request, "This exam is published — ask management to unpublish it before making changes.")
+        return redirect("dashboard:exam_edit", exam_id=exam.id)
+    if questions and exam.is_locked:
+        messages.error(request, "Students have already started this exam — questions can't be changed.")
+        return redirect("dashboard:exam_edit", exam_id=exam.id)
+    return None
+
+
+def _unpushed_submissions():
+    return Submission.objects.filter(status=Submission.Status.SUBMITTED, pushed_to_raddai=False)
+
+
+# --- Auth -------------------------------------------------------------------
 
 
 @ratelimit(key="ip", rate="5/m", method="POST", block=False)
 def staff_login(request):
+    if request.user.is_authenticated and (is_manager(request.user) or is_teacher(request.user)):
+        return redirect("dashboard:home")
+
     if getattr(request, "limited", False):
         messages.error(request, "Too many login attempts. Please wait a moment and try again.")
         return render(request, "dashboard/login.html")
@@ -25,10 +87,10 @@ def staff_login(request):
         username = request.POST.get("username", "").strip()
         password = request.POST.get("password", "")
         user = authenticate(request, username=username, password=password)
-        if user is not None and hasattr(user, "syncedstaff"):
+        if user is not None and (is_manager(user) or is_teacher(user)):
             login(request, user)
-            return redirect("dashboard:exam_monitor_list")
-        messages.error(request, "Invalid staff ID or password.")
+            return redirect("dashboard:home")
+        messages.error(request, "Invalid staff ID/username or password.")
 
     return render(request, "dashboard/login.html")
 
@@ -39,89 +101,268 @@ def staff_logout(request):
     return redirect("dashboard:staff_login")
 
 
-@staff_required
-def exam_monitor_list(request):
-    exams = Exam.objects.select_related("subject", "klass").order_by("-opens_at")
-    return render(request, "dashboard/exam_monitor_list.html", {"exams": exams})
+@dashboard_required
+def change_password(request):
+    form = PasswordChangeForm(request.user, request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        user = form.save()
+        update_session_auth_hash(request, user)
+        for relation in ("syncedmanager", "syncedstaff"):
+            profile = getattr(user, relation, None)
+            if profile and profile.must_change_password:
+                profile.must_change_password = False
+                profile.save(update_fields=["must_change_password"])
+        messages.success(request, "Password changed.")
+        return redirect("dashboard:home")
+    return _render(request, "dashboard/change_password.html", "password", {"form": form})
 
 
-@staff_required
-def exam_monitor(request, exam_id):
-    exam = get_object_or_404(Exam, pk=exam_id)
-    counts = dict(
-        Submission.objects.filter(exam=exam).values_list("status").annotate(count=Count("id"))
-    )
-    unpushed_count = Submission.objects.filter(
-        exam=exam, status=Submission.Status.SUBMITTED, pushed_to_raddai=False
-    ).count()
-    return render(
-        request,
-        "dashboard/exam_monitor.html",
-        {
-            "exam": exam,
-            "in_progress_count": counts.get(Submission.Status.IN_PROGRESS, 0),
-            "submitted_count": counts.get(Submission.Status.SUBMITTED, 0),
-            "unpushed_count": unpushed_count,
+# --- Overview & lists -------------------------------------------------------
+
+
+@dashboard_required
+def home(request):
+    now = timezone.now()
+    if is_manager(request.user):
+        pending_push = (
+            Exam.objects.annotate(
+                unpushed=Count(
+                    "submissions",
+                    filter=Q(submissions__status=Submission.Status.SUBMITTED, submissions__pushed_to_raddai=False),
+                )
+            )
+            .filter(unpushed__gt=0)
+            .select_related("subject", "klass")
+            .order_by("closes_at")[:5]
+        )
+        context = {
+            "stats": {
+                "students": SyncedStudent.objects.filter(is_active=True).count(),
+                "staff": SyncedStaff.objects.filter(is_active=True).count(),
+                "open_now": Exam.objects.filter(is_published=True, opens_at__lte=now, closes_at__gte=now).count(),
+                "drafts": Exam.objects.filter(is_published=False).count(),
+                "in_progress": Submission.objects.filter(status=Submission.Status.IN_PROGRESS).count(),
+            },
+            "pending_push": pending_push,
+            "drafts": Exam.objects.filter(is_published=False).select_related(*EXAM_RELATED).order_by("-id")[:5],
+        }
+        return _render(request, "dashboard/home_manager.html", "home", context)
+
+    mine = Exam.objects.filter(created_by=request.user)
+    context = {
+        "stats": {
+            "total": mine.count(),
+            "drafts": mine.filter(is_published=False).count(),
+            "published": mine.filter(is_published=True).count(),
+            "submitted": Submission.objects.filter(exam__in=mine, status=Submission.Status.SUBMITTED).count(),
         },
+        "recent": mine.select_related("subject", "klass").order_by("-id")[:6],
+    }
+    return _render(request, "dashboard/home_teacher.html", "home", context)
+
+
+@dashboard_required
+def exam_list(request):
+    exams = (
+        _visible_exams(request.user)
+        .select_related(*EXAM_RELATED)
+        .annotate(submitted=Count("submissions", filter=Q(submissions__status=Submission.Status.SUBMITTED)))
+        .order_by("-opens_at")
     )
+    status = request.GET.get("status", "")
+    if status == "draft":
+        exams = exams.filter(is_published=False)
+    elif status == "published":
+        exams = exams.filter(is_published=True)
+    class_id = request.GET.get("class", "")
+    if class_id.isdigit():
+        exams = exams.filter(klass_id=class_id)
+    query = request.GET.get("q", "").strip()
+    if query:
+        exams = exams.filter(subject__name__icontains=query)
+
+    return _render(request, "dashboard/exam_list.html", "exams", {
+        "exams": exams,
+        "classes": SyncedClass.objects.order_by("grade", "section"),
+        "status": status,
+        "class_id": class_id,
+        "query": query,
+    })
 
 
-@staff_required
-def push_results(request, exam_id):
-    exam = get_object_or_404(Exam, pk=exam_id)
-    if request.method != "POST":
-        return redirect("dashboard:exam_monitor", exam_id=exam.id)
+@dashboard_required
+def exam_results(request, exam_id):
+    exam = _get_exam(request, exam_id)
+    submissions = exam.submissions.select_related("student").order_by("student__full_name")
+    counts = dict(submissions.order_by().values_list("status").annotate(count=Count("id")))
+    return _render(request, "dashboard/exam_results.html", "exams", {
+        "exam": exam,
+        "submissions": submissions,
+        "in_progress_count": counts.get(Submission.Status.IN_PROGRESS, 0),
+        "submitted_count": counts.get(Submission.Status.SUBMITTED, 0),
+        "unpushed_count": submissions.filter(
+            status=Submission.Status.SUBMITTED, pushed_to_raddai=False
+        ).count(),
+        "class_size": SyncedStudent.objects.filter(current_class=exam.klass, is_active=True).count(),
+    })
 
-    submissions = Submission.objects.filter(
-        exam=exam, status=Submission.Status.SUBMITTED, pushed_to_raddai=False
+
+# --- Pushing results (management only) --------------------------------------
+
+
+def _push_submissions(request, submissions):
+    submissions = list(
+        submissions.select_related("student", "exam__subject", "exam__academic_year").order_by("id")
     )
-    pushed = failed = 0
+    if not submissions:
+        messages.info(request, "Nothing to push — every submitted result is already on the main portal.")
+        return
+
+    deadline = time.monotonic() + PUSH_TIME_BUDGET_SECONDS
+    attempted = pushed = 0
+    errors = []
     for submission in submissions:
+        if time.monotonic() > deadline:
+            break
+        attempted += 1
         success, error = push_submission_to_raddai(submission)
         if success:
             pushed += 1
         else:
-            failed += 1
-            messages.warning(request, f"Failed to push {submission.student}: {error}")
+            errors.append(f"{submission.student.full_name}: {error}")
 
-    messages.success(request, f"Pushed {pushed} result(s) to raddai-backend. {failed} failed.")
-    return redirect("dashboard:exam_monitor", exam_id=exam.id)
+    if pushed:
+        messages.success(request, f"Pushed {pushed} result{'s' if pushed != 1 else ''} to the main portal.")
+    if errors:
+        messages.error(request, f"{len(errors)} failed — " + "; ".join(errors[:3]) + ("…" if len(errors) > 3 else ""))
+    left = len(submissions) - attempted
+    if left:
+        messages.warning(request, f"{left} more still to push — click Push again to continue.")
+
+
+@management_required
+def results(request):
+    exams = (
+        Exam.objects.annotate(
+            submitted=Count("submissions", filter=Q(submissions__status=Submission.Status.SUBMITTED)),
+            unpushed=Count(
+                "submissions",
+                filter=Q(submissions__status=Submission.Status.SUBMITTED, submissions__pushed_to_raddai=False),
+            ),
+        )
+        .filter(submitted__gt=0)
+        .select_related("subject", "klass")
+        .order_by("-unpushed", "-closes_at")
+    )
+    return _render(request, "dashboard/results.html", "results", {"exams": exams})
+
+
+@management_required
+@require_POST
+def push_results(request, exam_id):
+    exam = get_object_or_404(Exam, pk=exam_id)
+    _push_submissions(request, _unpushed_submissions().filter(exam=exam))
+    if request.POST.get("next") == "results":
+        return redirect("dashboard:results")
+    return redirect("dashboard:exam_results", exam_id=exam.id)
+
+
+@management_required
+@require_POST
+def push_all(request):
+    _push_submissions(request, _unpushed_submissions())
+    return redirect("dashboard:results")
+
+
+# --- Roster (management only) -----------------------------------------------
+
+
+@management_required
+def students(request):
+    queryset = SyncedStudent.objects.select_related("current_class").order_by(
+        "current_class__grade", "current_class__section", "full_name"
+    )
+    class_id = request.GET.get("class", "")
+    if class_id.isdigit():
+        queryset = queryset.filter(current_class_id=class_id)
+    query = request.GET.get("q", "").strip()
+    if query:
+        queryset = queryset.filter(Q(full_name__icontains=query) | Q(student_id__icontains=query))
+
+    page = Paginator(queryset, 50).get_page(request.GET.get("page"))
+    return _render(request, "dashboard/students.html", "students", {
+        "page": page,
+        "classes": SyncedClass.objects.order_by("grade", "section"),
+        "class_id": class_id,
+        "query": query,
+    })
+
+
+@management_required
+def staff(request):
+    return _render(request, "dashboard/staff.html", "staff", {
+        "managers": SyncedManager.objects.order_by("-is_active", "full_name"),
+        "teachers": SyncedStaff.objects.order_by("-is_active", "full_name"),
+    })
+
+
+@management_required
+@require_POST
+def sync_roster_now(request):
+    output = StringIO()
+    try:
+        call_command("sync_roster", apply=True, stdout=output)
+    except Exception as exc:  # raddai down, wrong key, network — tell the user rather than 500
+        messages.error(request, f"Sync failed: {exc}")
+    else:
+        summary = [line for line in output.getvalue().splitlines() if re.match(r"^\w+: \d+ to create", line)]
+        messages.success(request, "Synced from the main portal. " + " · ".join(summary))
+
+    next_url = request.POST.get("next", "")
+    return redirect(next_url if next_url.startswith("/dashboard/") else "dashboard:home")
 
 
 # --- Exam authoring ---------------------------------------------------------
 
 
-@staff_required
+@dashboard_required
 def exam_create(request):
     form = ExamForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
-        exam = form.save()
+        exam = form.save(commit=False)
+        exam.created_by = request.user
+        exam.save()
         messages.success(request, "Exam created. Now add its questions.")
         return redirect("dashboard:exam_edit", exam_id=exam.id)
-    return render(request, "dashboard/exam_create.html", {"form": form})
+    return _render(request, "dashboard/exam_create.html", "exam_create", {"form": form})
 
 
-@staff_required
+@dashboard_required
 def exam_edit(request, exam_id):
-    exam = get_object_or_404(Exam.objects.select_related("subject", "klass"), pk=exam_id)
+    exam = _get_exam(request, exam_id)
     locked = exam.is_locked
     form = ExamForm(request.POST or None, instance=exam, locked=locked)
 
-    if request.method == "POST" and form.is_valid():
-        form.save()
-        messages.success(request, "Exam details saved.")
-        return redirect("dashboard:exam_edit", exam_id=exam.id)
+    if request.method == "POST":
+        blocked = _edit_blocked(request, exam)
+        if blocked:
+            return blocked
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Exam details saved.")
+            return redirect("dashboard:exam_edit", exam_id=exam.id)
 
-    return render(request, "dashboard/exam_edit.html", _exam_edit_context(exam, form, QuestionForm()))
+    return _render(request, "dashboard/exam_edit.html", "exams", _exam_edit_context(request, exam, form, QuestionForm()))
 
 
-def _exam_edit_context(exam, exam_form, question_form):
+def _exam_edit_context(request, exam, exam_form, question_form):
     return {
         "exam": exam,
         "form": exam_form,
         "question_form": question_form,
         "questions": exam.questions.prefetch_related("choices"),
         "locked": exam.is_locked,
+        "can_edit": _can_edit(request.user, exam),
         "allocated_marks": exam.allocated_marks,
         "publish_problems": exam.publish_problems(),
     }
@@ -138,19 +379,19 @@ def _save_question(question, cleaned):
     ])
 
 
-@staff_required
+@dashboard_required
 @require_POST
 def question_add(request, exam_id):
-    exam = get_object_or_404(Exam, pk=exam_id)
-    if exam.is_locked:
-        messages.error(request, "Students have already started this exam — questions can't be changed.")
-        return redirect("dashboard:exam_edit", exam_id=exam.id)
+    exam = _get_exam(request, exam_id)
+    blocked = _edit_blocked(request, exam, questions=True)
+    if blocked:
+        return blocked
 
     question_form = QuestionForm(request.POST)
     if not question_form.is_valid():
         messages.error(request, "Question not added — fix the errors below.")
-        context = _exam_edit_context(exam, ExamForm(instance=exam), question_form)
-        return render(request, "dashboard/exam_edit.html", context, status=400)
+        context = _exam_edit_context(request, exam, ExamForm(instance=exam), question_form)
+        return _render(request, "dashboard/exam_edit.html", "exams", context, status=400)
 
     next_order = (exam.questions.aggregate(m=Max("order"))["m"] or 0) + 1
     with transaction.atomic():
@@ -159,13 +400,13 @@ def question_add(request, exam_id):
     return redirect(reverse("dashboard:exam_edit", args=[exam.id]) + "#questions")
 
 
-@staff_required
+@dashboard_required
 def question_edit(request, exam_id, question_id):
-    exam = get_object_or_404(Exam, pk=exam_id)
+    exam = _get_exam(request, exam_id)
     question = get_object_or_404(Question, pk=question_id, exam=exam)
-    if exam.is_locked:
-        messages.error(request, "Students have already started this exam — questions can't be changed.")
-        return redirect("dashboard:exam_edit", exam_id=exam.id)
+    blocked = _edit_blocked(request, exam, questions=True)
+    if blocked:
+        return blocked
 
     if request.method == "POST":
         form = QuestionForm(request.POST)
@@ -177,22 +418,22 @@ def question_edit(request, exam_id, question_id):
     else:
         form = QuestionForm(initial=QuestionForm.initial_for(question))
 
-    return render(request, "dashboard/question_edit.html", {"exam": exam, "question": question, "form": form})
+    return _render(request, "dashboard/question_edit.html", "exams", {"exam": exam, "question": question, "form": form})
 
 
-@staff_required
+@dashboard_required
 @require_POST
 def question_delete(request, exam_id, question_id):
-    exam = get_object_or_404(Exam, pk=exam_id)
-    if exam.is_locked:
-        messages.error(request, "Students have already started this exam — questions can't be changed.")
-    else:
-        get_object_or_404(Question, pk=question_id, exam=exam).delete()
-        messages.success(request, "Question deleted.")
+    exam = _get_exam(request, exam_id)
+    blocked = _edit_blocked(request, exam, questions=True)
+    if blocked:
+        return blocked
+    get_object_or_404(Question, pk=question_id, exam=exam).delete()
+    messages.success(request, "Question deleted.")
     return redirect("dashboard:exam_edit", exam_id=exam.id)
 
 
-@staff_required
+@management_required
 @require_POST
 def exam_toggle_publish(request, exam_id):
     exam = get_object_or_404(Exam, pk=exam_id)
@@ -212,13 +453,16 @@ def exam_toggle_publish(request, exam_id):
     return redirect("dashboard:exam_edit", exam_id=exam.id)
 
 
-@staff_required
+@dashboard_required
 @require_POST
 def exam_delete(request, exam_id):
-    exam = get_object_or_404(Exam, pk=exam_id)
+    exam = _get_exam(request, exam_id)
+    blocked = _edit_blocked(request, exam)
+    if blocked:
+        return blocked
     if exam.is_locked:
         messages.error(request, "Students have already taken this exam — it can't be deleted.")
         return redirect("dashboard:exam_edit", exam_id=exam.id)
     exam.delete()
     messages.success(request, "Exam deleted.")
-    return redirect("dashboard:exam_monitor_list")
+    return redirect("dashboard:exam_list")

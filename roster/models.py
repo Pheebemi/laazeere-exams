@@ -61,3 +61,22 @@ class SyncedStaff(models.Model):
 
     def __str__(self):
         return f"{self.full_name} ({self.staff_id})"
+
+
+class SyncedManager(models.Model):
+    """
+    A Management/Admin account on raddai-backend. Gets the exam portal's admin
+    dashboard: publishing exams, pushing results, viewing the whole roster.
+    Logs in with the same username as the main portal.
+    """
+
+    raddai_id = models.PositiveIntegerField(unique=True)
+    username = models.CharField(max_length=150, unique=True)
+    full_name = models.CharField(max_length=150)
+    role = models.CharField(max_length=20, blank=True, default="")
+    is_active = models.BooleanField(default=True)
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="syncedmanager")
+    must_change_password = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f"{self.full_name} ({self.username})"

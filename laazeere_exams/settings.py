@@ -70,6 +70,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "dashboard.context_processors.dashboard",
             ],
         },
     },
@@ -120,6 +121,13 @@ CACHES = {
     }
 }
 
+
+# The default hasher stays first (preferred); the starter hasher only exists
+# so sync_roster can create accounts quickly — see core/hashers.py.
+PASSWORD_HASHERS = [
+    "django.contrib.auth.hashers.PBKDF2PasswordHasher",
+    "core.hashers.StarterPasswordHasher",
+]
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},

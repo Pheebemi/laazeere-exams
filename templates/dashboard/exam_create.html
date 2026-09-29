@@ -1,16 +1,15 @@
-{% extends "layout/base.html" %}
-{% block title %}New Exam — Laazeere Academy Exam Portal{% endblock %}
+{% extends "layout/dashboard.html" %}
+{% block title %}New exam{% endblock %}
 {% block content %}
-<section class="max-w-3xl mx-auto px-4 sm:px-6 py-10">
-    <a href="{% url 'dashboard:exam_monitor_list' %}" class="text-sm text-muted-foreground hover:text-primary">&larr; All exams</a>
-    <h1 class="text-2xl font-extrabold mt-2">New Exam</h1>
+<section class="max-w-3xl">
+    <h1 class="text-2xl font-extrabold">New exam</h1>
     <p class="text-sm text-muted-foreground mb-6">Set up the exam first. You'll add questions on the next screen.</p>
 
     <form method="post" class="card p-6 space-y-5">
         {% csrf_token %}
         {% include "dashboard/_exam_fields.html" %}
         <div class="flex justify-end gap-3 pt-2">
-            <a href="{% url 'dashboard:exam_monitor_list' %}" class="btn-outline">Cancel</a>
+            <a href="{% url 'dashboard:exam_list' %}" class="btn-outline">Cancel</a>
             <button type="submit" class="btn-primary">Create exam &amp; add questions</button>
         </div>
     </form>

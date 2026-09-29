@@ -1,0 +1,55 @@
+{% extends "layout/dashboard.html" %}
+{% block title %}Students{% endblock %}
+{% block content %}
+{% include "dashboard/_page_header.html" with title="Students" subtitle="Copied from the main portal. To add or change a student, do it there, then click “Sync from main portal”." %}
+
+<form method="get" class="card p-4 mb-4 grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+    <div class="sm:col-span-2">
+        <label for="q">Name or student ID</label>
+        <input type="text" id="q" name="q" value="{{ query }}" placeholder="e.g. Amina or LAZ-PRI-0012">
+    </div>
+    <div>
+        <label for="class">Class</label>
+        <select id="class" name="class" onchange="this.form.submit()">
+            <option value="">All classes</option>
+            {% for klass in classes %}<option value="{{ klass.id }}" {% if class_id == klass.id|stringformat:"d" %}selected{% endif %}>{{ klass }}</option>{% endfor %}
+        </select>
+    </div>
+</form>
+
+<p class="text-sm text-muted-foreground mb-2">{{ page.paginator.count }} student{{ page.paginator.count|pluralize }}</p>
+<div class="card overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead class="bg-muted text-muted-foreground text-left">
+            <tr>
+                <th class="px-4 py-3 font-semibold">Name</th>
+                <th class="px-4 py-3 font-semibold">Student ID</th>
+                <th class="px-4 py-3 font-semibold">Class</th>
+                <th class="px-4 py-3 font-semibold">Password</th>
+                <th class="px-4 py-3 font-semibold">Status</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y">
+            {% for student in page %}
+            <tr>
+                <td class="px-4 py-3 font-medium">{{ student.full_name }}</td>
+                <td class="px-4 py-3 text-muted-foreground whitespace-nowrap">{{ student.student_id }}</td>
+                <td class="px-4 py-3 whitespace-nowrap">{{ student.current_class|default:"—" }}</td>
+                <td class="px-4 py-3 text-muted-foreground">{% if student.must_change_password %}Starter (their ID){% else %}Changed{% endif %}</td>
+                <td class="px-4 py-3">{% if student.is_active %}Active{% else %}<span class="text-destructive font-semibold">Inactive</span>{% endif %}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="px-4 py-10 text-center text-muted-foreground">No students match.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if page.has_other_pages %}
+<div class="flex items-center justify-between mt-4 text-sm">
+    {% if page.has_previous %}<a class="btn-outline" href="?page={{ page.previous_page_number }}&q={{ query|urlencode }}&class={{ class_id }}">&larr; Previous</a>{% else %}<span></span>{% endif %}
+    <span class="text-muted-foreground">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}<a class="btn-outline" href="?page={{ page.next_page_number }}&q={{ query|urlencode }}&class={{ class_id }}">Next &rarr;</a>{% else %}<span></span>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

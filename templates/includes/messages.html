@@ -1,5 +1,5 @@
 {% if messages %}
-<div class="max-w-3xl mx-auto px-4 sm:px-6 pt-4 space-y-2">
+<div class="{% if wide %}mb-6{% else %}max-w-3xl mx-auto px-4 sm:px-6 pt-4{% endif %} space-y-2">
     {% for message in messages %}
     <div class="rounded-lg px-4 py-3 text-sm font-medium border
         {% if message.tags == 'success' %}bg-secondary text-secondary-foreground

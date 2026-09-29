@@ -18,17 +18,16 @@
                             {% csrf_token %}
                             <button type="submit" class="btn-outline">Log out</button>
                         </form>
-                    {% elif request.user.syncedstaff %}
-                        <a href="{% url 'dashboard:exam_monitor_list' %}" class="hidden sm:inline text-muted-foreground hover:text-primary">Dashboard</a>
-                        <span class="hidden sm:inline text-muted-foreground">{{ request.user.syncedstaff.full_name }}</span>
+                    {% elif request.user.syncedstaff or request.user.syncedmanager %}
+                        <a href="{% url 'dashboard:home' %}" class="btn-primary">Dashboard</a>
                         <form method="post" action="{% url 'dashboard:staff_logout' %}">
                             {% csrf_token %}
                             <button type="submit" class="btn-outline">Log out</button>
                         </form>
                     {% endif %}
                 {% else %}
-                    <a href="{% url 'exams:student_login' %}" class="px-3 py-2 rounded-lg hover:bg-muted hover:text-primary">Student Login</a>
-                    <a href="{% url 'dashboard:staff_login' %}" class="btn-primary">Staff Login</a>
+                    {# Staff and management log in at /dashboard/login/ — deliberately not linked from the student side. #}
+                    <a href="{% url 'exams:student_login' %}" class="btn-primary">Student Login</a>
                 {% endif %}
             </div>
         </div>

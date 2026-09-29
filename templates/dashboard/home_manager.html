@@ -1,0 +1,56 @@
+{% extends "layout/dashboard.html" %}
+{% block title %}Overview{% endblock %}
+{% block content %}
+{% url 'dashboard:exam_create' as create_url %}
+{% include "dashboard/_page_header.html" with title="Overview" subtitle="Everything happening on the exam portal." action_url=create_url action_label="+ New exam" %}
+
+<div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+    {% include "dashboard/_stat.html" with label="Students" value=stats.students %}
+    {% include "dashboard/_stat.html" with label="Staff" value=stats.staff %}
+    {% include "dashboard/_stat.html" with label="Exams open now" value=stats.open_now highlight=True %}
+    {% include "dashboard/_stat.html" with label="Writing right now" value=stats.in_progress %}
+    {% include "dashboard/_stat.html" with label="Results to push" value=dashboard_unpushed_count highlight=True %}
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div class="card">
+        <div class="flex items-center justify-between p-5 border-b">
+            <h2 class="font-bold">Waiting to be pushed</h2>
+            <a href="{% url 'dashboard:results' %}" class="text-sm font-semibold text-primary hover:underline">Push results &rarr;</a>
+        </div>
+        <ul class="divide-y">
+            {% for exam in pending_push %}
+            <li class="flex items-center justify-between gap-4 px-5 py-3">
+                <div class="min-w-0">
+                    <a href="{% url 'dashboard:exam_results' exam.id %}" class="font-semibold hover:text-primary">{{ exam.subject }}</a>
+                    <p class="text-sm text-muted-foreground">{{ exam.klass }} &middot; {{ exam.get_score_target_display }}</p>
+                </div>
+                <span class="shrink-0 rounded-full bg-accent text-accent-foreground px-2.5 py-1 text-xs font-bold">{{ exam.unpushed }} to push</span>
+            </li>
+            {% empty %}
+            <li class="px-5 py-8 text-center text-sm text-muted-foreground">All submitted results are on the main portal.</li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    <div class="card">
+        <div class="flex items-center justify-between p-5 border-b">
+            <h2 class="font-bold">Drafts to review <span class="text-muted-foreground font-semibold">({{ stats.drafts }})</span></h2>
+            <a href="{% url 'dashboard:exam_list' %}?status=draft" class="text-sm font-semibold text-primary hover:underline">All drafts &rarr;</a>
+        </div>
+        <ul class="divide-y">
+            {% for exam in drafts %}
+            <li class="flex items-center justify-between gap-4 px-5 py-3">
+                <div class="min-w-0">
+                    <a href="{% url 'dashboard:exam_edit' exam.id %}" class="font-semibold hover:text-primary">{{ exam.subject }}</a>
+                    <p class="text-sm text-muted-foreground">{{ exam.klass }} &middot; {{ exam.get_score_target_display }}{% if exam.author_name %} &middot; by {{ exam.author_name }}{% endif %}</p>
+                </div>
+                <a href="{% url 'dashboard:exam_edit' exam.id %}" class="btn-outline shrink-0">Review</a>
+            </li>
+            {% empty %}
+            <li class="px-5 py-8 text-center text-sm text-muted-foreground">No drafts waiting.</li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+{% endblock %}
