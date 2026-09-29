@@ -375,10 +375,25 @@ def _exam_edit_context(request, exam, exam_form, question_form):
     }
 
 
+def _delete_pictures_after_commit(names):
+    """Remove pictures from storage once the DB change that dropped them is committed (never before)."""
+    names = [name for name in names if name]
+    if names:
+        storage = Question._meta.get_field("image").storage
+        transaction.on_commit(lambda: [storage.delete(name) for name in names])
+
+
 def _save_question(question, cleaned):
+    old_picture = question.image.name if question.image else ""
     question.text = cleaned["text"].strip()
     question.marks = cleaned["marks"]
+    if cleaned.get("image"):
+        question.image = cleaned["image"]
+    elif cleaned.get("remove_image"):
+        question.image = None
     question.save()
+    if old_picture and old_picture != question.image.name:
+        _delete_pictures_after_commit([old_picture])
     question.choices.all().delete()
     Choice.objects.bulk_create([
         Choice(question=question, text=text, is_correct=(i == cleaned["correct"]), order=order)
@@ -394,7 +409,7 @@ def question_add(request, exam_id):
     if blocked:
         return blocked
 
-    question_form = QuestionForm(request.POST)
+    question_form = QuestionForm(request.POST, request.FILES)
     if not question_form.is_valid():
         messages.error(request, "Question not added — fix the errors below.")
         context = _exam_edit_context(request, exam, ExamForm(instance=exam), question_form)
@@ -416,7 +431,7 @@ def question_edit(request, exam_id, question_id):
         return blocked
 
     if request.method == "POST":
-        form = QuestionForm(request.POST)
+        form = QuestionForm(request.POST, request.FILES)
         if form.is_valid():
             with transaction.atomic():
                 _save_question(question, form.cleaned_data)
@@ -435,7 +450,10 @@ def question_delete(request, exam_id, question_id):
     blocked = _edit_blocked(request, exam, questions=True)
     if blocked:
         return blocked
-    get_object_or_404(Question, pk=question_id, exam=exam).delete()
+    question = get_object_or_404(Question, pk=question_id, exam=exam)
+    with transaction.atomic():
+        question.delete()
+        _delete_pictures_after_commit([question.image.name])
     messages.success(request, "Question deleted.")
     return redirect("dashboard:exam_edit", exam_id=exam.id)
 
@@ -470,6 +488,9 @@ def exam_delete(request, exam_id):
     if exam.is_locked:
         messages.error(request, "Students have already taken this exam — it can't be deleted.")
         return redirect("dashboard:exam_edit", exam_id=exam.id)
-    exam.delete()
+    with transaction.atomic():
+        pictures = list(exam.questions.exclude(image="").values_list("image", flat=True))
+        exam.delete()
+        _delete_pictures_after_commit(pictures)
     messages.success(request, "Exam deleted.")
     return redirect("dashboard:exam_list")

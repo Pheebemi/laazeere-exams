@@ -27,7 +27,7 @@
                     {% endif %}
                 {% else %}
                     {# Staff and management log in at /dashboard/login/ — deliberately not linked from the student side. #}
-                    <a href="{% url 'exams:student_login' %}" class="btn-primary">Student Login</a>
+                    <a href="{% url 'exams:student_login' %}" class="btn-primary whitespace-nowrap"><span class="sm:hidden">Log in</span><span class="hidden sm:inline">Student Login</span></a>
                 {% endif %}
             </div>
         </div>

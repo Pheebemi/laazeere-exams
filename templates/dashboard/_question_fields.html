@@ -27,3 +27,59 @@
     </div>
     {% for error in form.correct.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
 </div>
+
+<div>
+    <label for="id_image">Picture <span class="font-normal text-muted-foreground">(optional)</span></label>
+    <p class="field-help mb-2">A diagram, map or photo shown under the question. Big photos are shrunk automatically.</p>
+    <div class="flex flex-wrap items-start gap-4">
+        {% if question.image %}
+        <div data-current-picture class="space-y-2">
+            <img src="{{ question.image.url }}" alt="Current picture" class="h-28 max-w-56 rounded-lg border bg-card object-contain">
+            <label class="flex items-center gap-2 font-normal text-sm cursor-pointer">
+                <input type="checkbox" name="remove_image" class="accent-primary h-4 w-4"> Remove picture
+            </label>
+        </div>
+        {% endif %}
+        <img data-picture-preview alt="New picture" class="hidden h-28 max-w-56 rounded-lg border bg-card object-contain">
+    </div>
+    <input type="file" name="image" id="id_image" accept="image/jpeg,image/png,image/webp,image/gif" data-shrink-image
+           class="mt-2 block w-full text-sm text-muted-foreground file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-secondary file:px-4 file:py-2 file:text-sm file:font-semibold file:text-secondary-foreground hover:file:bg-muted">
+    {% if question.image %}<p class="field-help">Choosing a new file replaces the current picture.</p>{% endif %}
+    {% for error in form.image.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+</div>
+
+<script>
+    // Phone photos are often 3–8 MB, but Vercel refuses uploads over ~4.5 MB,
+    // so shrink big pictures in the browser before they're sent. The server
+    // then re-encodes everything to a small WebP anyway.
+    document.querySelectorAll("[data-shrink-image]").forEach(function (input) {
+        var preview = input.closest("div").querySelector("[data-picture-preview]");
+        input.addEventListener("change", function () {
+            var file = input.files && input.files[0];
+            if (!file) { preview.classList.add("hidden"); return; }
+            var url = URL.createObjectURL(file);
+            preview.src = url;
+            preview.classList.remove("hidden");
+            if (file.size <= 3 * 1024 * 1024 || !window.DataTransfer) return;
+
+            var img = new Image();
+            img.onload = function () {
+                var scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+                var canvas = document.createElement("canvas");
+                canvas.width = Math.round(img.width * scale);
+                canvas.height = Math.round(img.height * scale);
+                var ctx = canvas.getContext("2d");
+                ctx.fillStyle = "#fff";  // JPEG has no transparency — use white, not black
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                canvas.toBlob(function (blob) {
+                    if (!blob) return;
+                    var smaller = new DataTransfer();
+                    smaller.items.add(new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" }));
+                    input.files = smaller.files;
+                }, "image/jpeg", 0.85);
+            };
+            img.src = url;
+        });
+    });
+</script>

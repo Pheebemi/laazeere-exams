@@ -5,7 +5,7 @@
     <a href="{% url 'dashboard:exam_edit' exam.id %}" class="text-sm text-muted-foreground hover:text-primary">&larr; Back to {{ exam.subject }} exam</a>
     <h1 class="text-2xl font-extrabold mt-2 mb-6">Edit Question</h1>
 
-    <form method="post" class="card p-6 space-y-5">
+    <form method="post" enctype="multipart/form-data" class="card p-6 space-y-5">
         {% csrf_token %}
         {% include "dashboard/_question_fields.html" %}
         <div class="flex justify-end gap-3 pt-2">
