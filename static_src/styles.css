@@ -1,0 +1,93 @@
+@import "tailwindcss";
+
+@source "../templates/**/*.html";
+@source "../**/*.py";
+
+/*
+ * Color tokens copied from raddai-lms/app/globals.css (:root) so the exam
+ * portal looks like the same Laazeere Academy system as the main portal.
+ * If raddai's palette changes, update the values here to match.
+ */
+@theme {
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+
+  --radius-sm: 0.5rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+
+  --color-background: oklch(0.990 0 0);
+  --color-foreground: oklch(0.133 0.012 255);
+  --color-card: oklch(1 0 0);
+  --color-card-foreground: oklch(0.133 0.012 255);
+
+  /* Deep Emerald */
+  --color-primary: oklch(0.28 0.14 160);
+  --color-primary-hover: oklch(0.23 0.12 160);
+  --color-primary-foreground: oklch(1 0 0);
+
+  /* Mint tonal surface */
+  --color-secondary: oklch(0.930 0.045 160);
+  --color-secondary-foreground: oklch(0.230 0.085 160);
+
+  --color-muted: oklch(0.939 0.014 160);
+  --color-muted-foreground: oklch(0.452 0.015 255);
+
+  /* Warm amber accent */
+  --color-accent: oklch(0.935 0.075 85);
+  --color-accent-foreground: oklch(0.380 0.100 75);
+
+  --color-destructive: oklch(0.535 0.229 27.3);
+
+  --color-border: oklch(0.870 0.012 160);
+  --color-input: oklch(0.870 0.012 160);
+  --color-ring: oklch(0.28 0.14 160);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  input[type="text"],
+  input[type="password"],
+  input[type="number"],
+  input[type="datetime-local"],
+  textarea,
+  select {
+    @apply mt-1.5 block w-full rounded-lg border border-input bg-card px-4 py-2.5 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/20 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed;
+  }
+  label {
+    @apply text-sm font-semibold;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary-hover;
+  }
+  .btn-primary:disabled {
+    @apply opacity-50 cursor-not-allowed hover:bg-primary;
+  }
+  .btn-outline {
+    @apply inline-flex items-center justify-center rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground transition hover:bg-muted;
+  }
+  .btn-danger {
+    @apply inline-flex items-center justify-center rounded-lg border border-red-200 bg-card px-3 py-2 text-sm font-medium text-destructive transition hover:bg-red-50;
+  }
+  .field-error {
+    @apply mt-1 text-xs font-medium text-destructive;
+  }
+  .field-help {
+    @apply mt-1 text-xs text-muted-foreground;
+  }
+  .card {
+    @apply rounded-xl border border-border bg-card text-card-foreground shadow-sm;
+  }
+  /* A single MCQ choice on the take-exam form. */
+  .choice-card {
+    @apply relative flex items-start gap-3 rounded-xl border-2 border-border bg-card p-4 font-normal cursor-pointer transition hover:bg-muted has-checked:border-primary has-checked:bg-secondary has-checked:ring-2 has-checked:ring-ring/20;
+  }
+}

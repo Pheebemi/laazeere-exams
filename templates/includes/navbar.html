@@ -1,0 +1,36 @@
+{% load static %}
+<header class="bg-card border-b sticky top-0 z-40">
+    <nav class="max-w-5xl mx-auto px-4 sm:px-6">
+        <div class="flex justify-between items-center h-16">
+            <a href="/" class="flex items-center gap-2.5 font-bold flex-shrink-0">
+                <img src="{% static 'assets/logo.png' %}" alt="Laazeere Academy" class="h-9 w-9 object-contain flex-shrink-0">
+                <span class="leading-tight">
+                    <span class="block">Laazeere Academy</span>
+                    <span class="block text-xs font-medium text-muted-foreground">Exam Portal</span>
+                </span>
+            </a>
+
+            <div class="flex items-center gap-3 text-sm font-medium">
+                {% if request.user.is_authenticated %}
+                    {% if request.user.syncedstudent %}
+                        <span class="hidden sm:inline text-muted-foreground">{{ request.user.syncedstudent.full_name }}</span>
+                        <form method="post" action="{% url 'exams:student_logout' %}">
+                            {% csrf_token %}
+                            <button type="submit" class="btn-outline">Log out</button>
+                        </form>
+                    {% elif request.user.syncedstaff %}
+                        <a href="{% url 'dashboard:exam_monitor_list' %}" class="hidden sm:inline text-muted-foreground hover:text-primary">Dashboard</a>
+                        <span class="hidden sm:inline text-muted-foreground">{{ request.user.syncedstaff.full_name }}</span>
+                        <form method="post" action="{% url 'dashboard:staff_logout' %}">
+                            {% csrf_token %}
+                            <button type="submit" class="btn-outline">Log out</button>
+                        </form>
+                    {% endif %}
+                {% else %}
+                    <a href="{% url 'exams:student_login' %}" class="px-3 py-2 rounded-lg hover:bg-muted hover:text-primary">Student Login</a>
+                    <a href="{% url 'dashboard:staff_login' %}" class="btn-primary">Staff Login</a>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+</header>

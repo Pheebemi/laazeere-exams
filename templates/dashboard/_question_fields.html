@@ -1,0 +1,29 @@
+{% if form.non_field_errors %}
+<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-destructive">
+    {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+</div>
+{% endif %}
+
+<div class="grid grid-cols-1 sm:grid-cols-[1fr_8rem] gap-4">
+    {% include "includes/field.html" with field=form.text %}
+    {% include "includes/field.html" with field=form.marks %}
+</div>
+
+<div>
+    <p class="text-sm font-semibold">Options</p>
+    <p class="field-help mb-2">Fill in 2&ndash;6 options and tick the correct one. Leave extra rows blank.</p>
+    <div class="space-y-2">
+        {% for i, letter, field in form.choice_rows %}
+        <div class="flex items-center gap-3">
+            <label class="flex items-center gap-2 font-normal cursor-pointer shrink-0" title="Mark as correct answer">
+                <input type="radio" name="correct" value="{{ i }}" class="accent-primary h-4 w-4"
+                       {% if form.correct.value|stringformat:"s" == i|stringformat:"s" %}checked{% endif %}>
+                <span class="w-5 text-sm font-semibold text-muted-foreground">{{ letter }}</span>
+            </label>
+            <input type="text" name="choice_{{ i }}" value="{{ field.value|default_if_none:'' }}"
+                   placeholder="Option {{ letter }}{% if i > 2 %} (optional){% endif %}" class="mt-0!">
+        </div>
+        {% endfor %}
+    </div>
+    {% for error in form.correct.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+</div>

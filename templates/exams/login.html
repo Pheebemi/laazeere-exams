@@ -1,10 +1,25 @@
-{% extends "base.html" %}
+{% extends "layout/base.html" %}
+{% block title %}Student Login — Laazeere Academy Exam Portal{% endblock %}
 {% block content %}
-<h1>Student Login</h1>
-<form method="post">
-  {% csrf_token %}
-  <label>Student ID <input type="text" name="username" required></label><br>
-  <label>Password <input type="password" name="password" required></label><br>
-  <button type="submit">Log in</button>
-</form>
+<section class="max-w-sm mx-auto px-4 sm:px-6 py-16">
+    <div class="text-center mb-8">
+        <span class="inline-flex h-12 w-12 items-center justify-center rounded-full bg-secondary text-primary">
+            <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.436 60.436 0 0 0-.491 6.347A48.62 48.62 0 0 1 12 20.904a48.62 48.62 0 0 1 8.232-4.41 60.46 60.46 0 0 0-.491-6.347m-15.482 0a50.636 50.636 0 0 0-2.658-.813A59.906 59.906 0 0 1 12 3.493a59.903 59.903 0 0 1 10.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0 1 12 13.489a50.702 50.702 0 0 1 7.74-3.342M6.75 15a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm0 0v-3.675A55.378 55.378 0 0 1 12 8.443"/></svg>
+        </span>
+        <h1 class="mt-4 text-2xl font-extrabold">Student Login</h1>
+        <p class="mt-2 text-sm text-muted-foreground">Use the same student ID as the main Laazeere portal.</p>
+    </div>
+    <form method="post" class="card p-6 space-y-4">
+        {% csrf_token %}
+        <div>
+            <label for="username" class="text-sm font-semibold">Student ID</label>
+            <input type="text" id="username" name="username" required autofocus>
+        </div>
+        <div>
+            <label for="password" class="text-sm font-semibold">Password</label>
+            <input type="password" id="password" name="password" required>
+        </div>
+        <button type="submit" class="btn-primary w-full py-3">Log in</button>
+    </form>
+</section>
 {% endblock %}

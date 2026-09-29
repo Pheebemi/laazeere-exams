@@ -39,7 +39,7 @@ def main():
         data={"username": args.username, "password": args.password, "csrfmiddlewaretoken": csrftoken},
     )
 
-    session.get(f"{args.base_url}/{args.exam_id}/start/")
+    session.post(f"{args.base_url}/{args.exam_id}/start/", data={"csrfmiddlewaretoken": session.cookies["csrftoken"]})
     session.get(f"{args.base_url}/{args.exam_id}/take/")
     csrftoken = session.cookies["csrftoken"]
     cookies = session.cookies.get_dict()

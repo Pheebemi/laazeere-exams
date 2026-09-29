@@ -7,7 +7,7 @@ Standalone Django app where students take multiple-choice tests (CA1/CA2/CA3/Exa
 - **`core`** — infra only (health check, DB-backed cache table for rate limiting across serverless invocations).
 - **`roster`** — local mirror of raddai-backend's students/staff/classes/subjects/academic years, kept in sync via `sync_roster`. This is the *only* place student/staff accounts get created — there is no manual signup.
 - **`exams`** — student-facing: login, take a test, submit. `exams/views.py::_finalize_submission` is the load-bearing concurrency-safety code (an atomic compare-and-swap that makes double-submits — refresh, double-click, a second tab, the deadline auto-submit, and the `auto_submit_expired` command — all safe to race against each other).
-- **`dashboard`** — staff-facing: monitor submissions, push graded results to raddai-backend. Exam/Question/Choice authoring itself is done in Django admin (`/admin/`), not a custom UI.
+- **`dashboard`** — staff-facing: create/edit exams and questions, publish, monitor submissions, push graded results to raddai-backend.
 
 ## Local setup
 
@@ -15,7 +15,9 @@ Standalone Django app where students take multiple-choice tests (CA1/CA2/CA3/Exa
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # leave DATABASE_URL blank for local SQLite
+npm install && npm run build-css   # only needed after changing templates/styles; compiled CSS is committed
 python manage.py migrate
+python manage.py test
 python manage.py createsuperuser
 python manage.py runserver
 ```
@@ -34,7 +36,9 @@ Run this on a schedule (Vercel Cron if the plan's limits allow it — verify cur
 
 ## Creating an exam
 
-In `/admin/`: add an `Exam` (pick subject/class/academic year/term, and which `Result` slot it targets — CA1/CA2/CA3/Exam), add `Question`s inline, each with `Choice`s (mark exactly one `is_correct`), then tick `is_published`. `total_marks` is set automatically from the score target (10 for a CA slot, 70 for Exam) — question marks should sum to that.
+Staff log into `/dashboard/`, click **+ New Exam**, pick subject/class/academic year/term and which `Result` slot it fills (CA1/CA2/CA3 out of 10, Exam out of 70), then add questions (2–6 options each, one marked correct). **Publish** stays disabled until the question marks add up exactly to the slot's total and every question has a single correct answer. Once any student has started an exam, its questions, subject, class and slot are locked (so grading can't change under them); only the timing can still be edited.
+
+Django admin (`/admin/`) still has the same models as a fallback, but it bypasses the publish checks and the lock — prefer the dashboard.
 
 ## Pushing results
 
