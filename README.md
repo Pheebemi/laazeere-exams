@@ -72,12 +72,18 @@ Set in the Vercel project:
 
 ## Load testing before real students use it
 
-This is the one thing that has to happen against the real deployment, not locally — reuse the same `load_test.py` approach already validated against jcda-election (200 concurrent, 400 requests, 100% success), but the case an exam presents is harder than voting: many students hit "submit" near the same shared deadline (a thundering herd), not a steadier window.
+`scripts/load_test.py` plays N students against the live site: each logs in, opens the exam list, starts the exam and loads the questions, then **all N submit at the same instant** (the "timer ran out" rush — harder than a steady flow). It prints how many made it and how slow each step was.
 
-What to actually test, beyond a plain login/page-load smoke test:
-1. Pre-create M `Submission` rows (`in_progress`) for one `Exam` — e.g. via the admin or a quick shell script hitting `/*/start/` as M different logged-in students.
-2. Fire M concurrent `POST /<exam_id>/submit/` requests in a tight window — `scripts/concurrency_test.py` does exactly this for a single submission (already verified locally: 30 concurrent submits, exactly one Answer set recorded, zero 5xx); extend it to M distinct students/exams for the real thundering-herd case.
-3. Assert afterward: `Submission.objects.filter(exam=exam, status='submitted').count() == M`, and each submission has exactly one `Answer` per question (no dupes, no gaps) — confirmed locally with 30 concurrent submits against a single submission (all handled cleanly, exactly one Answer set recorded, zero 5xx).
-4. Watch Neon's connection-count metric live during the burst — Vercel can spin up many concurrent function invocations, each opening its own DB connection (no pooling on the Django side), so this is the number that actually tells you if the compute/pooler size is adequate, rather than guessing.
+It never touches real students. Before a run, throwaway accounts `LOADTEST-0001…` are put in a separate **LOAD TEST** class (roster ids from 9000000, so no sync ever overwrites them), with one published 10-question First CA exam for that class; they all share one test password. Afterwards all of it is deleted — never push that exam's results.
 
-Run this at a concurrency target at least matching the largest class expected to sit an exam simultaneously, before real students rely on it.
+```bash
+pip install requests
+python scripts/load_test.py --exam <exam id> --password <test password> --students 100
+python scripts/load_test.py --exam <exam id> --password <test password> --students 200 --first 101   # bigger run, fresh accounts
+```
+
+`--ramp 30` spreads logins over 30 seconds instead of all at once. Check afterwards that every test submission is `submitted` with exactly one answer per question, and watch Neon's compute/connection graphs during the run.
+
+Logins are rate-limited **per account, not per IP**, because a whole computer lab shares one public IP (an IP limit locked out part of a class), and a failing counter lets the login through (`RATELIMIT_FAIL_OPEN`) rather than blocking a student mid-exam.
+
+`scripts/concurrency_test.py` is the narrower check that one student double-submitting (refresh, double-click, two tabs) records exactly one set of answers.

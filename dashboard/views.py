@@ -77,7 +77,8 @@ def _unpushed_submissions():
 # --- Auth -------------------------------------------------------------------
 
 
-@ratelimit(key="ip", rate="5/m", method="POST", block=False)
+# Per account, not per IP — staff share the school's connection too (see exams.views.student_login).
+@ratelimit(key="post:username", rate="10/m", method="POST", block=False)
 def staff_login(request):
     if request.user.is_authenticated and (is_manager(request.user) or is_teacher(request.user)):
         return redirect("dashboard:home")

@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -73,3 +73,30 @@ class StudentFlowTests(TestCase):
         self.second_ca.save()
         response = self.client.get(reverse("exams:exam_list"))
         self.assertEqual(response.context["rows"], [])
+
+
+class LoginRateLimitTests(TestCase):
+    """A whole class logs in from one school IP at the start of an exam — only repeated guessing on ONE account is limited."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        year = SyncedAcademicYear.objects.create(raddai_id=1, name="Y", start_date="2026-09-01", end_date="2027-07-31")
+        klass = SyncedClass.objects.create(raddai_id=1, name="JSS1 A", grade=7, academic_year=year)
+        for i in range(40):
+            user = User.objects.create_user(username=f"LAB-{i:02d}", password=f"LAB-{i:02d}")
+            SyncedStudent.objects.create(raddai_id=i + 1, student_id=f"LAB-{i:02d}", full_name=f"S{i}", current_class=klass, user=user)
+
+    def test_forty_students_on_one_ip_can_all_log_in(self):
+        for i in range(40):
+            client = Client(REMOTE_ADDR="10.0.0.1")
+            response = client.post(reverse("exams:student_login"), {"username": f"LAB-{i:02d}", "password": f"LAB-{i:02d}"})
+            self.assertRedirects(response, reverse("exams:exam_list"), msg_prefix=f"student {i}")
+
+    def test_guessing_one_account_is_limited(self):
+        client = Client()
+        for _ in range(10):
+            client.post(reverse("exams:student_login"), {"username": "LAB-00", "password": "wrong"})
+        response = client.post(reverse("exams:student_login"), {"username": "LAB-00", "password": "LAB-00"})
+        self.assertContains(response, "Too many login attempts")
