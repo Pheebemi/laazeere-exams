@@ -5,7 +5,7 @@ from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 
-from roster.models import SyncedManager, SyncedStudent
+from roster.models import SyncedManager, SyncedStaff, SyncedStudent
 
 User = get_user_model()
 
@@ -63,3 +63,32 @@ class SyncRosterTests(TestCase):
         output = self.sync(roster_payload([]))
         self.assertIn("academic_years: 0 to create, 0 to update", output)
         self.assertIn("students: 0 to create, 0 to update", output)
+
+    def test_people_disabled_on_the_main_portal_arrive_disabled(self):
+        payload = roster_payload([{"id": 7, "username": "old.head", "full_name": "Old Head", "role": "admin", "is_active": False}])
+        payload["students"][0]["is_active"] = False
+        self.sync(payload)
+        self.assertFalse(SyncedStudent.objects.get().user.is_active)
+        self.assertFalse(SyncedManager.objects.get().user.is_active)
+        self.assertFalse(self.client.login(username="old.head", password="old.head"))
+
+    def test_renamed_login_follows_the_main_portal(self):
+        row = {"id": 7, "username": "bursar", "full_name": "Mrs Bursar", "role": "management", "is_active": True}
+        payload = roster_payload([row])
+        self.sync(payload)
+        payload["students"][0]["student_id"] = "LAZ-JS-0099"
+        row["username"] = "mrs.obi"
+        self.sync(payload)
+        self.assertEqual(SyncedStudent.objects.get().user.username, "LAZ-JS-0099")
+        self.assertEqual(SyncedManager.objects.get().user.username, "mrs.obi")
+        self.assertTrue(self.client.login(username="mrs.obi", password="bursar"))
+
+    def test_a_login_name_clash_is_skipped_without_breaking_the_sync(self):
+        payload = roster_payload([{"id": 7, "username": "LAZ-2026-099", "full_name": "Clash Manager", "role": "admin", "is_active": True}])
+        self.sync(payload)
+        payload["staff"] = [{"id": 3, "staff_id": "LAZ-2026-099", "full_name": "New Teacher", "designation": "teacher", "is_active": True}]
+        payload["students"].append({"id": 2, "student_id": "LAZ-JS-0002", "full_name": "Second Student", "current_class_id": 1, "is_active": True})
+        output = self.sync(payload)
+        self.assertIn("skip: New Teacher", output)
+        self.assertEqual(SyncedStudent.objects.count(), 2)
+        self.assertFalse(SyncedStaff.objects.exists())
