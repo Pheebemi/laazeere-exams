@@ -155,7 +155,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
 # --- Laazeere exam portal <-> raddai-backend integration ---
-RADDAI_API_BASE_URL = env("RADDAI_API_BASE_URL", "https://laazeereacademy.com/api")
+RADDAI_API_BASE_URL = env("RADDAI_API_BASE_URL", "https://laazeereacademy.pw/api").rstrip("/")
 EXAM_PORTAL_API_KEY = env("EXAM_PORTAL_API_KEY", "")
 
 
