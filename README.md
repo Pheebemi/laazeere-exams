@@ -1,6 +1,6 @@
 # Laazeere Academy Exam Portal
 
-Standalone Django app where students take multiple-choice tests (CA1/CA2/CA3/Exam) and their scores flow automatically into the matching `Result` slot on [raddai-backend](https://laazeereacademy.com), the same way a teacher's manual entry would. Built on the same stack proven by `jcda-election` at 200 concurrent users on free tiers: Vercel + Neon + WhiteNoise.
+Standalone Django app where students take multiple-choice tests (CA1/CA2/CA3/Exam) and their scores flow automatically into the matching `Result` slot on [raddai-backend](https://laazeereacademy.pw), the same way a teacher's manual entry would. Built on the same stack proven by `jcda-election` at 200 concurrent users on free tiers: Vercel + Neon + WhiteNoise.
 
 ## Apps
 
@@ -52,7 +52,7 @@ Same pattern as jcda-election: `vercel.json` targets `laazeere_exams/wsgi.py` as
 
 Set in the Vercel project:
 - `DATABASE_URL` — Neon's **pooled** connection string (the `-pooler` hostname). SQLite does not work on Vercel's read-only filesystem, and there's no Django-side connection pooling here — each serverless invocation opens a fresh connection, so the pooled string matters.
-- `RADDAI_API_BASE_URL` — `https://laazeereacademy.com/api`
+- `RADDAI_API_BASE_URL` — `https://laazeereacademy.pw/api` (a trailing `/` is fine)
 - `EXAM_PORTAL_API_KEY` — a long random shared secret, set to the **same value** as `EXAM_PORTAL_API_KEY` on raddai-backend.
 - `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, `DJANGO_CSRF_TRUSTED_ORIGINS` — set to your production domain.
 - `SESSION_COOKIE_SECURE=True`, `CSRF_COOKIE_SECURE=True`.
