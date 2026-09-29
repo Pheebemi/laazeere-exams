@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "python manage.py collectstatic --noinput && python manage.py migrate --noinput",
+  "buildCommand": "python manage.py collectstatic --noinput && python manage.py migrate --noinput && (python manage.py sync_roster --apply || echo 'Roster sync failed - deploying with the existing roster.')",
   "functions": {
     "laazeere_exams/wsgi.py": {
       "maxDuration": 60
