@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ exam.subject }} — {{ exam.klass }} — {{ exam.get_score_target_display }}</h1>
+<ul>
+  {% for row in counts %}
+    <li>{{ row.status }}: {{ row.count }}</li>
+  {% endfor %}
+</ul>
+<p>{{ unpushed_count }} submitted but not yet pushed to raddai-backend.</p>
+<form method="post" action="{% url 'dashboard:push_results' exam.id %}">
+  {% csrf_token %}
+  <button type="submit">Push results to raddai-backend</button>
+</form>
+<a href="{% url 'dashboard:exam_monitor_list' %}">Back</a>
+{% endblock %}

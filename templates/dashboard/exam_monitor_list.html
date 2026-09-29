@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Exams</h1>
+<form method="post" action="{% url 'dashboard:staff_logout' %}">{% csrf_token %}<button type="submit">Log out</button></form>
+<ul>
+  {% for exam in exams %}
+    <li><a href="{% url 'dashboard:exam_monitor' exam.id %}">{{ exam.subject }} — {{ exam.klass }} — {{ exam.get_score_target_display }}</a></li>
+  {% empty %}
+    <li>No exams yet. Add one in <a href="/admin/exams/exam/add/">the admin</a>.</li>
+  {% endfor %}
+</ul>
+{% endblock %}

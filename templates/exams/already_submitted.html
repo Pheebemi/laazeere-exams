@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Submitted</h1>
+<p>{{ exam.subject }} — {{ exam.get_score_target_display }}</p>
+<p>Your score: {{ submission.score }} / {{ exam.total_marks }}</p>
+<a href="{% url 'exams:exam_list' %}">Back to exams</a>
+{% endblock %}

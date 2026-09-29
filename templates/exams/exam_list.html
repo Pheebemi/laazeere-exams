@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Your Exams</h1>
+<form method="post" action="{% url 'exams:student_logout' %}">{% csrf_token %}<button type="submit">Log out</button></form>
+<ul>
+  {% for row in rows %}
+    <li>
+      {{ row.exam.subject }} — {{ row.exam.get_score_target_display }}
+      {% if row.submission.status == "submitted" %}
+        (submitted, score: {{ row.submission.score }})
+      {% elif row.is_open %}
+        <a href="{% url 'exams:start_exam' row.exam.id %}">Start</a>
+      {% else %}
+        (not open)
+      {% endif %}
+    </li>
+  {% empty %}
+    <li>No exams available right now.</li>
+  {% endfor %}
+</ul>
+{% endblock %}

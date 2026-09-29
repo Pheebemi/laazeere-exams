@@ -1,0 +1,206 @@
+"""
+Pull academic years, classes, subjects, students, and staff from
+raddai-backend and mirror them locally.
+
+Dry-run by default — pass --apply to actually write changes. Mirrors
+repair_fee_payments.py's shape on raddai-backend: build a diff first,
+print it, only write inside a transaction when --apply is passed.
+"""
+
+import requests
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
+
+from roster.models import SyncedAcademicYear, SyncedClass, SyncedStaff, SyncedStudent, SyncedSubject
+
+User = get_user_model()
+
+
+class Command(BaseCommand):
+    help = "Sync roster data (academic years, classes, subjects, students, staff) from raddai-backend."
+
+    def add_arguments(self, parser):
+        parser.add_argument("--apply", action="store_true", help="Write the sync. Without this, only show a dry-run.")
+        parser.add_argument("--academic-year", type=int, help="Only sync data for one raddai academic year id.")
+
+    def handle(self, *args, **options):
+        if not settings.EXAM_PORTAL_API_KEY:
+            raise CommandError("EXAM_PORTAL_API_KEY is not set — cannot authenticate to raddai-backend.")
+
+        url = f"{settings.RADDAI_API_BASE_URL}/exam-portal/roster/"
+        params = {}
+        if options.get("academic_year"):
+            params["academic_year"] = options["academic_year"]
+
+        response = requests.get(
+            url, params=params, headers={"X-Exam-Portal-Key": settings.EXAM_PORTAL_API_KEY}, timeout=30
+        )
+        response.raise_for_status()
+        payload = response.json()
+
+        apply = options["apply"]
+        mode = "Applying" if apply else "Dry run"
+        self.stdout.write(f"{mode} roster sync from {url}\n")
+
+        with transaction.atomic():
+            year_map = self._sync_academic_years(payload.get("academic_years", []), apply)
+            class_map = self._sync_classes(payload.get("classes", []), year_map, apply)
+            self._sync_subjects(payload.get("subjects", []), apply)
+            self._sync_students(payload.get("students", []), class_map, apply)
+            self._sync_staff(payload.get("staff", []), apply)
+
+            if not apply:
+                # Roll back everything — a dry run must never persist writes.
+                transaction.set_rollback(True)
+
+        self.stdout.write(self.style.SUCCESS("Done." if apply else "Dry run complete — nothing was written."))
+
+    def _sync_academic_years(self, rows, apply):
+        id_map = {}
+        created = updated = 0
+        for row in rows:
+            existing = SyncedAcademicYear.objects.filter(raddai_id=row["id"]).first()
+            fields = {
+                "name": row["name"],
+                "start_date": row["start_date"],
+                "end_date": row["end_date"],
+                "is_active": row["is_active"],
+            }
+            if existing:
+                changed = any(getattr(existing, k) != v for k, v in fields.items())
+                if changed:
+                    updated += 1
+                    self.stdout.write(f"  [academic_year] update: {row['name']}")
+                    if apply:
+                        for k, v in fields.items():
+                            setattr(existing, k, v)
+                        existing.save()
+                id_map[row["id"]] = existing.pk
+            else:
+                created += 1
+                self.stdout.write(f"  [academic_year] create: {row['name']}")
+                if apply:
+                    obj = SyncedAcademicYear.objects.create(raddai_id=row["id"], **fields)
+                    id_map[row["id"]] = obj.pk
+        self.stdout.write(f"academic_years: {created} to create, {updated} to update\n")
+        return id_map
+
+    def _sync_classes(self, rows, year_map, apply):
+        id_map = {}
+        created = updated = 0
+        for row in rows:
+            year_pk = year_map.get(row["academic_year_id"])
+            if year_pk is None and apply:
+                # Year wasn't in this run's payload (e.g. filtered out) — look it up directly.
+                year = SyncedAcademicYear.objects.filter(raddai_id=row["academic_year_id"]).first()
+                year_pk = year.pk if year else None
+            existing = SyncedClass.objects.filter(raddai_id=row["id"]).first()
+            fields = {"name": row["name"], "grade": row["grade"], "section": row.get("section", "")}
+            if existing:
+                changed = any(getattr(existing, k) != v for k, v in fields.items())
+                if changed:
+                    updated += 1
+                    self.stdout.write(f"  [class] update: {row['name']}")
+                    if apply:
+                        for k, v in fields.items():
+                            setattr(existing, k, v)
+                        existing.save()
+                id_map[row["id"]] = existing.pk
+            else:
+                created += 1
+                self.stdout.write(f"  [class] create: {row['name']}")
+                if apply and year_pk:
+                    obj = SyncedClass.objects.create(raddai_id=row["id"], academic_year_id=year_pk, **fields)
+                    id_map[row["id"]] = obj.pk
+        self.stdout.write(f"classes: {created} to create, {updated} to update\n")
+        return id_map
+
+    def _sync_subjects(self, rows, apply):
+        created = updated = 0
+        for row in rows:
+            existing = SyncedSubject.objects.filter(raddai_id=row["id"]).first()
+            fields = {"name": row["name"], "code": row.get("code") or ""}
+            if existing:
+                changed = any(getattr(existing, k) != v for k, v in fields.items())
+                if changed:
+                    updated += 1
+                    self.stdout.write(f"  [subject] update: {row['name']}")
+                    if apply:
+                        for k, v in fields.items():
+                            setattr(existing, k, v)
+                        existing.save()
+            else:
+                created += 1
+                self.stdout.write(f"  [subject] create: {row['name']}")
+                if apply:
+                    SyncedSubject.objects.create(raddai_id=row["id"], **fields)
+        self.stdout.write(f"subjects: {created} to create, {updated} to update\n")
+
+    def _sync_students(self, rows, class_map, apply):
+        created = updated = 0
+        for row in rows:
+            class_pk = class_map.get(row.get("current_class_id"))
+            if class_pk is None and row.get("current_class_id") and apply:
+                cls = SyncedClass.objects.filter(raddai_id=row["current_class_id"]).first()
+                class_pk = cls.pk if cls else None
+
+            existing = SyncedStudent.objects.filter(raddai_id=row["id"]).first()
+            fields = {
+                "student_id": row["student_id"],
+                "full_name": row["full_name"],
+                "current_class_id": class_pk,
+                "is_active": row.get("is_active", True),
+            }
+            if existing:
+                changed = any(getattr(existing, k) != v for k, v in fields.items() if k != "current_class_id") or (
+                    existing.current_class_id != class_pk
+                )
+                if changed:
+                    updated += 1
+                    self.stdout.write(f"  [student] update: {row['full_name']} ({row['student_id']})")
+                    if apply:
+                        for k, v in fields.items():
+                            setattr(existing, k, v)
+                        existing.save()
+                        existing.user.is_active = fields["is_active"]
+                        existing.user.save(update_fields=["is_active"])
+            else:
+                created += 1
+                self.stdout.write(f"  [student] create: {row['full_name']} ({row['student_id']})")
+                if apply:
+                    user = User.objects.create_user(username=row["student_id"], password=row["student_id"])
+                    SyncedStudent.objects.create(raddai_id=row["id"], user=user, **fields)
+        self.stdout.write(f"students: {created} to create, {updated} to update\n")
+
+    def _sync_staff(self, rows, apply):
+        created = updated = 0
+        for row in rows:
+            existing = SyncedStaff.objects.filter(raddai_id=row["id"]).first()
+            fields = {
+                "staff_id": row["staff_id"],
+                "full_name": row["full_name"],
+                "designation": row.get("designation") or "",
+                "is_active": row.get("is_active", True),
+            }
+            if existing:
+                changed = any(getattr(existing, k) != v for k, v in fields.items())
+                if changed:
+                    updated += 1
+                    self.stdout.write(f"  [staff] update: {row['full_name']} ({row['staff_id']})")
+                    if apply:
+                        for k, v in fields.items():
+                            setattr(existing, k, v)
+                        existing.save()
+                        existing.user.is_active = fields["is_active"]
+                        existing.user.save(update_fields=["is_active"])
+            else:
+                created += 1
+                self.stdout.write(f"  [staff] create: {row['full_name']} ({row['staff_id']})")
+                if apply:
+                    user = User.objects.create_user(
+                        username=row["staff_id"], password=row["staff_id"], is_staff=True
+                    )
+                    SyncedStaff.objects.create(raddai_id=row["id"], user=user, **fields)
+        self.stdout.write(f"staff: {created} to create, {updated} to update\n")
