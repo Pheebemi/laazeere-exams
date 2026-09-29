@@ -1,4 +1,5 @@
 from datetime import timedelta
+from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.test import Client, TestCase
@@ -94,7 +95,10 @@ class LoginRateLimitTests(TestCase):
             response = client.post(reverse("exams:student_login"), {"username": f"LAB-{i:02d}", "password": f"LAB-{i:02d}"})
             self.assertRedirects(response, reverse("exams:exam_list"), msg_prefix=f"student {i}")
 
-    def test_guessing_one_account_is_limited(self):
+    # Rate-limit windows are aligned to the clock; freeze it so the 11 slow
+    # (password-hashing) attempts can't straddle a window boundary and reset.
+    @mock.patch("django_ratelimit.core.time.time", return_value=1_800_000_000)
+    def test_guessing_one_account_is_limited(self, _frozen_clock):
         client = Client()
         for _ in range(10):
             client.post(reverse("exams:student_login"), {"username": "LAB-00", "password": "wrong"})

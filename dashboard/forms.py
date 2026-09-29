@@ -1,10 +1,38 @@
+from io import BytesIO
+from uuid import uuid4
+
 from django import forms
+from django.conf import settings
+from django.core.files.base import ContentFile
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from exams.models import Exam
 from roster.models import SyncedAcademicYear, SyncedClass
 
 MAX_CHOICES = 6
 DATETIME_FORMAT = "%Y-%m-%dT%H:%M"
+
+# Vercel rejects request bodies over ~4.5 MB before Django sees them. The
+# browser shrinks big photos before uploading (see _question_fields.html);
+# this is the server-side backstop.
+MAX_IMAGE_UPLOAD_BYTES = 4 * 1024 * 1024
+MAX_IMAGE_SIDE = 1600
+IMAGE_TYPES = "image/jpeg,image/png,image/webp,image/gif"
+
+
+def shrink_image(upload):
+    """
+    Re-encode an uploaded picture as a WebP at most MAX_IMAGE_SIDE pixels on
+    its longest side — typically 100–200 KB instead of a multi-MB phone
+    photo, so a whole class can load it at once on mobile data.
+    """
+    with Image.open(upload) as original:
+        image = ImageOps.exif_transpose(original)  # phones record rotation in EXIF, not in the pixels
+        image.thumbnail((MAX_IMAGE_SIDE, MAX_IMAGE_SIDE))
+        image = image.convert("RGBA" if image.mode in ("RGBA", "LA", "P") else "RGB")
+        buffer = BytesIO()
+        image.save(buffer, "WEBP", quality=85, method=4)
+    return ContentFile(buffer.getvalue(), name=f"{uuid4().hex}.webp")
 
 
 class ExamForm(forms.ModelForm):
@@ -58,6 +86,10 @@ class ExamForm(forms.ModelForm):
 class QuestionForm(forms.Form):
     text = forms.CharField(label="Question", widget=forms.Textarea(attrs={"rows": 3}))
     marks = forms.IntegerField(min_value=1)
+    image = forms.FileField(
+        required=False, label="Picture (optional)", widget=forms.FileInput(attrs={"accept": IMAGE_TYPES})
+    )
+    remove_image = forms.BooleanField(required=False)
     correct = forms.IntegerField(
         min_value=1, max_value=MAX_CHOICES,
         error_messages={"required": "Pick the correct answer."},
@@ -71,6 +103,21 @@ class QuestionForm(forms.Form):
     def choice_rows(self):
         """(index, letter, bound field) for rendering the option inputs in the template."""
         return [(i, "ABCDEF"[i - 1], self[f"choice_{i}"]) for i in range(1, MAX_CHOICES + 1)]
+
+    def clean_image(self):
+        upload = self.cleaned_data.get("image")
+        if not upload:
+            return None
+        if not settings.PICTURE_UPLOADS_ENABLED:
+            raise forms.ValidationError(
+                "Pictures aren't switched on yet — ask the admin to connect Vercel Blob storage."
+            )
+        if upload.size > MAX_IMAGE_UPLOAD_BYTES:
+            raise forms.ValidationError("That picture is too big (max 4 MB). Try a smaller photo or a screenshot.")
+        try:
+            return shrink_image(upload)
+        except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+            raise forms.ValidationError("That file isn't a picture we can read. Use a JPG, PNG or WebP image.")
 
     def clean(self):
         cleaned = super().clean()

@@ -23,6 +23,13 @@
                 <span class="text-primary">{{ forloop.counter }}.</span> {{ question.text }}
                 <span class="font-normal text-muted-foreground text-sm">({{ question.marks }} mark{{ question.marks|pluralize }})</span>
             </p>
+            {% if question.image %}
+            <a href="{{ question.image.url }}" target="_blank" rel="noopener" class="block mb-4" title="Open the picture full size">
+                <img src="{{ question.image.url }}" alt="Picture for question {{ forloop.counter }}"
+                     class="max-h-80 max-w-full rounded-lg border bg-card object-contain">
+                <span class="mt-1 block text-xs text-muted-foreground">Tap the picture to see it bigger</span>
+            </a>
+            {% endif %}
             <div class="space-y-2.5">
                 {% for choice in question.choices.all %}
                 <label class="choice-card">

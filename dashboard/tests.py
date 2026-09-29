@@ -1,11 +1,18 @@
+import os
+import shutil
+import tempfile
 from datetime import timedelta
+from io import BytesIO
 from unittest import mock
 
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
+from PIL import Image
 
+from dashboard.forms import MAX_IMAGE_UPLOAD_BYTES
 from exams.models import Exam, Submission
 from roster.models import (
     SyncedAcademicYear, SyncedClass, SyncedManager, SyncedStaff, SyncedStudent, SyncedSubject,
@@ -314,3 +321,106 @@ class PushFailureTests(AuthoringTestBase):
             self.client.post(reverse("dashboard:push_all"))
         self.assertEqual([c.args[0].pk for c in push.call_args_list], [second.pk, self.first.pk])
         self.assertEqual(push.call_args.kwargs["timeout"], 10)
+
+
+def picture_upload(name="diagram.png", size=(2400, 1200), color=(20, 120, 60)):
+    buffer = BytesIO()
+    Image.new("RGB", size, color).save(buffer, "PNG")
+    return SimpleUploadedFile(name, buffer.getvalue(), content_type="image/png")
+
+
+class QuestionPictureTests(AuthoringTestBase):
+    def setUp(self):
+        super().setUp()
+        media = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, media, ignore_errors=True)
+        override = self.settings(MEDIA_ROOT=media)
+        override.enable()
+        self.addCleanup(override.disable)
+
+    def post_question(self, url, **extra):
+        return self.client.post(url, {
+            "text": "Name this shape", "marks": 4, "correct": 1, "choice_1": "Square", "choice_2": "Circle", **extra,
+        })
+
+    def add_url(self):
+        return reverse("dashboard:question_add", args=[self.exam.id])
+
+    def test_picture_is_shrunk_to_webp(self):
+        self.post_question(self.add_url(), image=picture_upload())
+        question = self.exam.questions.get()
+        self.assertTrue(question.image.name.endswith(".webp"))
+        with Image.open(question.image.path) as saved:
+            self.assertEqual(saved.format, "WEBP")
+            self.assertEqual(saved.size, (1600, 800))
+
+    def test_non_picture_is_rejected(self):
+        response = self.post_question(self.add_url(), image=SimpleUploadedFile("notes.png", b"not really a picture"))
+        self.assertContains(response, "t a picture we can read", status_code=400)
+        self.assertFalse(self.exam.questions.exists())
+
+    def test_clear_message_when_blob_is_not_connected(self):
+        with self.settings(PICTURE_UPLOADS_ENABLED=False):
+            response = self.post_question(self.add_url(), image=picture_upload())
+        self.assertContains(response, "switched on yet", status_code=400)
+        self.assertFalse(self.exam.questions.exists())
+
+    def test_oversized_upload_is_rejected(self):
+        huge = SimpleUploadedFile("huge.jpg", b"x" * (MAX_IMAGE_UPLOAD_BYTES + 1), content_type="image/jpeg")
+        response = self.post_question(self.add_url(), image=huge)
+        self.assertContains(response, "too big", status_code=400)
+        self.assertFalse(self.exam.questions.exists())
+
+    def test_replacing_and_removing_delete_the_old_file(self):
+        self.post_question(self.add_url(), image=picture_upload())
+        question = self.exam.questions.get()
+        first = question.image.path
+        edit_url = reverse("dashboard:question_edit", args=[self.exam.id, question.id])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.post_question(edit_url, image=picture_upload(color=(200, 0, 0)))
+        question.refresh_from_db()
+        self.assertFalse(os.path.exists(first))
+        second = question.image.path
+        self.assertTrue(os.path.exists(second))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.post_question(edit_url, remove_image="on")
+        question.refresh_from_db()
+        self.assertFalse(question.image)
+        self.assertFalse(os.path.exists(second))
+
+    def test_editing_text_keeps_the_picture(self):
+        self.post_question(self.add_url(), image=picture_upload())
+        question = self.exam.questions.get()
+        name = question.image.name
+        self.post_question(reverse("dashboard:question_edit", args=[self.exam.id, question.id]), text="Renamed")
+        question.refresh_from_db()
+        self.assertEqual((question.text, question.image.name), ("Renamed", name))
+
+    def test_deleting_question_or_exam_deletes_pictures(self):
+        self.post_question(self.add_url(), image=picture_upload())
+        self.post_question(self.add_url(), image=picture_upload())
+        first, second = self.exam.questions.all()
+        paths = [first.image.path, second.image.path]
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(reverse("dashboard:question_delete", args=[self.exam.id, first.id]))
+        self.assertFalse(os.path.exists(paths[0]))
+        self.assertTrue(os.path.exists(paths[1]))
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(reverse("dashboard:exam_delete", args=[self.exam.id]))
+        self.assertFalse(os.path.exists(paths[1]))
+
+    def test_student_sees_the_picture(self):
+        self.post_question(self.add_url(), image=picture_upload(), marks=10)
+        question = self.exam.questions.get()
+        self.login_as_manager()
+        self.client.post(reverse("dashboard:exam_toggle_publish", args=[self.exam.id]))
+        self.exam.refresh_from_db()
+        self.assertTrue(self.exam.is_published)
+
+        submission = self.start_submission()
+        self.client.force_login(submission.student.user)
+        response = self.client.get(reverse("exams:take_exam", args=[self.exam.id]))
+        self.assertContains(response, question.image.url)

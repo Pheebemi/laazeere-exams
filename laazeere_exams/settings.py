@@ -158,9 +158,23 @@ STATIC_ROOT = BASE_DIR / env("STATIC_ROOT", "staticfiles")
 _static_src = BASE_DIR / "static"
 STATICFILES_DIRS = [_static_src] if _static_src.exists() else []
 
+# Uploaded question pictures. On Vercel the filesystem is read-only, so they
+# go to Vercel Blob once a Blob store is connected to the project (Storage ->
+# Create -> Blob), which injects BLOB_READ_WRITE_TOKEN. Local dev without the
+# token saves to MEDIA_ROOT instead.
+MEDIA_URL = "media/"
+MEDIA_ROOT = BASE_DIR / env("MEDIA_ROOT", "media")
+# On Vercel without a Blob store there's nowhere writable to put pictures —
+# the question form then says so instead of failing with a server error.
+PICTURE_UPLOADS_ENABLED = bool(env("BLOB_READ_WRITE_TOKEN")) or not os.getenv("VERCEL")
+
 STORAGES = {
     "default": {
-        "BACKEND": "django.core.files.storage.FileSystemStorage",
+        "BACKEND": (
+            "core.blob_storage.VercelBlobStorage"
+            if env("BLOB_READ_WRITE_TOKEN")
+            else "django.core.files.storage.FileSystemStorage"
+        ),
     },
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",

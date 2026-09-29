@@ -117,6 +117,10 @@ class Question(models.Model):
     text = models.TextField()
     order = models.PositiveIntegerField(default=0)
     marks = models.PositiveIntegerField(default=1)
+    # Optional picture under the question (diagram, map, shape…). In
+    # production the stored name is the full Vercel Blob CDN URL, hence the
+    # long max_length.
+    image = models.ImageField(upload_to="questions/", blank=True, max_length=500)
 
     class Meta:
         ordering = ["order", "id"]

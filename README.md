@@ -48,6 +48,8 @@ Every new account starts with its own ID/username as the password and is nudged 
 
 Teachers or management log into `/dashboard/`, click **+ New exam**, pick subject/class/academic year/term and which `Result` slot it fills (CA1/CA2/CA3 out of 10, Exam out of 70), then add questions (2–6 options each, one marked correct). Management's **Publish** stays disabled until the question marks add up exactly to the slot's total and every question has a single correct answer. Once any student has started an exam, its questions, subject, class and slot are locked (so grading can't change under them); only the timing can still be edited.
 
+A question can carry one optional **picture** (diagram, map, shape…). Big phone photos are shrunk in the browser before upload (Vercel refuses request bodies over ~4.5 MB), then the server re-encodes every picture as a WebP of at most 1600 px (typically 100–200 KB) so a whole class loads it quickly. Pictures live in Vercel Blob and students load them straight from its CDN. Replacing or removing a picture, or deleting its question or exam, deletes the old file from Blob.
+
 Django admin (`/admin/`) still has the same models as a fallback, but it bypasses the publish checks and the lock — prefer the dashboard.
 
 ## Pushing results
@@ -66,6 +68,7 @@ Set in the Vercel project:
 - `EXAM_PORTAL_API_KEY` — a long random shared secret, set to the **same value** as `EXAM_PORTAL_API_KEY` on raddai-backend.
 - `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, `DJANGO_CSRF_TRUSTED_ORIGINS` — set to your production domain.
 - `SESSION_COOKIE_SECURE=True`, `CSRF_COOKIE_SECURE=True`.
+- `BLOB_READ_WRITE_TOKEN` — added automatically when a **Blob** store is connected to the project (Storage → Create → Blob). Question pictures are stored there; without it they'd go to the local disk, which is read-only on Vercel.
 - Do **not** set `SECURE_SSL_REDIRECT=True` — Vercel already forces HTTPS, and Django here isn't configured to trust Vercel's forwarded-protocol header, so it would see every request as plain HTTP and redirect forever.
 
 **Neon compute autoscaling**: when creating the Neon project, set the compute's autoscaling *max* to what your plan actually provides — don't leave it at a conservative default. This is a Neon console setting (Compute → autoscaling), not something in this repo.
