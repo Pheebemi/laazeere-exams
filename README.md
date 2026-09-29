@@ -32,17 +32,27 @@ python manage.py sync_roster --apply            # actually writes it
 python manage.py sync_roster --academic-year 13 --apply   # scope to one raddai academic year id
 ```
 
-**On Vercel, every deploy runs `sync_roster --apply` as the last build step** (see `vercel.json`) — there's no shell on Vercel, and a first sync of ~600 students takes a few minutes (each new account's password hash is deliberately slow), far past a serverless request's 60s limit but fine inside a build. So to pull new students/staff from the main portal, click **Redeploy** on the Vercel project. If the sync fails (e.g. raddai-backend is down or the key is wrong), the build logs it and still deploys with the roster it already had.
+**On Vercel there's no shell**, so the sync runs two other ways: management clicks **Sync from main portal** in the dashboard sidebar (starter passwords use a fast hash, so a whole-school sync fits in one request), and every deploy runs `sync_roster --apply` as the last build step (see `vercel.json`). To pull new students/staff from the main portal, management clicks **Sync from main portal** in the dashboard sidebar (or you click **Redeploy** on the Vercel project). If the sync fails (e.g. raddai-backend is down or the key is wrong), the build logs it and still deploys with the roster it already had.
+
+## Who can do what
+
+Everyone's access comes from the roster sync — nobody is added by hand:
+
+- **Management** — the main portal's **Management/Admin** accounts, logging in with the same username (starter password = the username). They get the full dashboard sidebar: every exam, **publishing**, **pushing results**, the student and staff lists, and **Sync from main portal**. When someone stops being Management/Admin on the main portal, the next sync removes their access here.
+- **Teachers** — every other staff member, logging in with their staff ID. They create exams and questions, see only their own exams, and can view their scripts' scores. They can't publish, can't push results, and can't change an exam once management has published it.
+- **Students** — log in at `/login/` with their student ID. Staff log in at `/dashboard/login/`; the student pages deliberately don't link to it.
+
+Every new account starts with its own ID/username as the password and is nudged to change it. Starter passwords use a deliberately fast hash (`core/hashers.py`) so a whole-school sync fits in one request; Django re-hashes to full strength on first login.
 
 ## Creating an exam
 
-Staff log into `/dashboard/`, click **+ New Exam**, pick subject/class/academic year/term and which `Result` slot it fills (CA1/CA2/CA3 out of 10, Exam out of 70), then add questions (2–6 options each, one marked correct). **Publish** stays disabled until the question marks add up exactly to the slot's total and every question has a single correct answer. Once any student has started an exam, its questions, subject, class and slot are locked (so grading can't change under them); only the timing can still be edited.
+Teachers or management log into `/dashboard/`, click **+ New exam**, pick subject/class/academic year/term and which `Result` slot it fills (CA1/CA2/CA3 out of 10, Exam out of 70), then add questions (2–6 options each, one marked correct). Management's **Publish** stays disabled until the question marks add up exactly to the slot's total and every question has a single correct answer. Once any student has started an exam, its questions, subject, class and slot are locked (so grading can't change under them); only the timing can still be edited.
 
 Django admin (`/admin/`) still has the same models as a fallback, but it bypasses the publish checks and the lock — prefer the dashboard.
 
 ## Pushing results
 
-After an exam closes, a staff member logs into `/dashboard/`, opens the exam, and clicks "Push results to raddai-backend" — pushes every submitted-but-not-yet-pushed submission's score into the matching `Result` slot for that student/subject/academic year/term, without touching the other three slots. Safe to click more than once (already-pushed submissions are skipped).
+After an exam closes, **management** opens **Push results** in the dashboard sidebar and clicks **Push** on an exam (or **Push all**) — pushes every submitted-but-not-yet-pushed submission's score into the matching `Result` slot for that student/subject/academic year/term, without touching the other three slots. Safe to click more than once (already-pushed submissions are skipped). Each click stops after ~40s to stay inside Vercel's 60s limit and says how many are left, so a big batch may need a second click.
 
 Run `python manage.py auto_submit_expired` periodically (same scheduling options as `sync_roster`) to force-submit anyone who abandoned an exam past its deadline, so staff review isn't blocked waiting on stragglers.
 

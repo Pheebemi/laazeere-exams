@@ -1,6 +1,6 @@
 """
-Pull academic years, classes, subjects, students, and staff from
-raddai-backend and mirror them locally.
+Pull academic years, classes, subjects, students, staff, and management
+accounts from raddai-backend and mirror them locally.
 
 Dry-run by default — pass --apply to actually write changes. Mirrors
 repair_fee_payments.py's shape on raddai-backend: build a diff first,
@@ -10,16 +10,27 @@ print it, only write inside a transaction when --apply is passed.
 import requests
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import make_password
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
-from roster.models import SyncedAcademicYear, SyncedClass, SyncedStaff, SyncedStudent, SyncedSubject
+from core.hashers import StarterPasswordHasher
+from roster.models import (
+    SyncedAcademicYear, SyncedClass, SyncedManager, SyncedStaff, SyncedStudent, SyncedSubject,
+)
 
 User = get_user_model()
 
 
+def _new_user(username, **extra):
+    """New account whose starter password is its own username — see core/hashers.py for why the fast hasher."""
+    return User.objects.create(
+        username=username, password=make_password(username, hasher=StarterPasswordHasher.algorithm), **extra
+    )
+
+
 class Command(BaseCommand):
-    help = "Sync roster data (academic years, classes, subjects, students, staff) from raddai-backend."
+    help = "Sync roster data (academic years, classes, subjects, students, staff, managers) from raddai-backend."
 
     def add_arguments(self, parser):
         parser.add_argument("--apply", action="store_true", help="Write the sync. Without this, only show a dry-run.")
@@ -50,6 +61,10 @@ class Command(BaseCommand):
             self._sync_subjects(payload.get("subjects", []), apply)
             self._sync_students(payload.get("students", []), class_map, apply)
             self._sync_staff(payload.get("staff", []), apply)
+            if "managers" in payload:
+                # Older raddai-backend builds don't send this key — leave managers alone then,
+                # rather than reading its absence as "everyone lost management access".
+                self._sync_managers(payload["managers"], apply)
 
             if not apply:
                 # Roll back everything — a dry run must never persist writes.
@@ -69,7 +84,11 @@ class Command(BaseCommand):
                 "is_active": row["is_active"],
             }
             if existing:
-                changed = any(getattr(existing, k) != v for k, v in fields.items())
+                # start/end dates arrive as ISO strings but are stored as dates — compare like with like.
+                changed = any(
+                    (getattr(existing, k).isoformat() if k in ("start_date", "end_date") else getattr(existing, k)) != v
+                    for k, v in fields.items()
+                )
                 if changed:
                     updated += 1
                     self.stdout.write(f"  [academic_year] update: {row['name']}")
@@ -170,7 +189,7 @@ class Command(BaseCommand):
                 created += 1
                 self.stdout.write(f"  [student] create: {row['full_name']} ({row['student_id']})")
                 if apply:
-                    user = User.objects.create_user(username=row["student_id"], password=row["student_id"])
+                    user = _new_user(row["student_id"])
                     SyncedStudent.objects.create(raddai_id=row["id"], user=user, **fields)
         self.stdout.write(f"students: {created} to create, {updated} to update\n")
 
@@ -199,8 +218,55 @@ class Command(BaseCommand):
                 created += 1
                 self.stdout.write(f"  [staff] create: {row['full_name']} ({row['staff_id']})")
                 if apply:
-                    user = User.objects.create_user(
-                        username=row["staff_id"], password=row["staff_id"], is_staff=True
-                    )
+                    user = _new_user(row["staff_id"], is_staff=True)
                     SyncedStaff.objects.create(raddai_id=row["id"], user=user, **fields)
         self.stdout.write(f"staff: {created} to create, {updated} to update\n")
+
+    def _sync_managers(self, rows, apply):
+        created = updated = removed = skipped = 0
+        seen = set()
+        for row in rows:
+            seen.add(row["id"])
+            existing = SyncedManager.objects.filter(raddai_id=row["id"]).first()
+            fields = {
+                "username": row["username"],
+                "full_name": row["full_name"],
+                "role": row.get("role") or "",
+                "is_active": row.get("is_active", True),
+            }
+            if existing:
+                changed = any(getattr(existing, k) != v for k, v in fields.items())
+                if changed:
+                    updated += 1
+                    self.stdout.write(f"  [manager] update: {row['full_name']} ({row['username']})")
+                    if apply:
+                        for k, v in fields.items():
+                            setattr(existing, k, v)
+                        existing.save()
+                        existing.user.is_active = fields["is_active"]
+                        existing.user.save(update_fields=["is_active"])
+            elif User.objects.filter(username=row["username"]).exists():
+                # A student/staff ID that happens to equal a manager's username — never
+                # hand an existing account management rights by accident.
+                skipped += 1
+                self.stdout.write(f"  [manager] skip: username {row['username']} is already used by another account")
+            else:
+                created += 1
+                self.stdout.write(f"  [manager] create: {row['full_name']} ({row['username']})")
+                if apply:
+                    user = _new_user(row["username"])
+                    SyncedManager.objects.create(raddai_id=row["id"], user=user, **fields)
+
+        # Someone who is no longer Management/Admin on the main portal must lose
+        # dashboard access here too, so disable accounts missing from the payload.
+        for gone in SyncedManager.objects.filter(is_active=True).exclude(raddai_id__in=seen).select_related("user"):
+            removed += 1
+            self.stdout.write(f"  [manager] disable: {gone.full_name} ({gone.username}) is no longer management")
+            if apply:
+                gone.is_active = False
+                gone.save(update_fields=["is_active"])
+                gone.user.is_active = False
+                gone.user.save(update_fields=["is_active"])
+        self.stdout.write(
+            f"managers: {created} to create, {updated} to update, {removed} to disable, {skipped} skipped\n"
+        )

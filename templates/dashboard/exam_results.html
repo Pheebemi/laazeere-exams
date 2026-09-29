@@ -1,0 +1,73 @@
+{% extends "layout/dashboard.html" %}
+{% block title %}{{ exam.subject }} results{% endblock %}
+{% block content %}
+<a href="{% url 'dashboard:exam_list' %}" class="text-sm text-muted-foreground hover:text-primary">&larr; Exams</a>
+<div class="flex flex-wrap items-start justify-between mt-2 mb-6 gap-4">
+    <div>
+        <div class="flex items-center gap-2">
+            <h1 class="text-2xl font-extrabold">{{ exam.subject }}</h1>
+            {% include "dashboard/_status_badge.html" %}
+        </div>
+        <p class="text-sm text-muted-foreground">{{ exam.klass }} &middot; {{ exam.get_score_target_display }} &middot; {{ exam.get_term_display }} &middot; {{ exam.total_marks }} marks</p>
+    </div>
+    <a href="{% url 'dashboard:exam_edit' exam.id %}" class="btn-outline">View questions</a>
+</div>
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    {% include "dashboard/_stat.html" with label="Students in class" value=class_size %}
+    {% include "dashboard/_stat.html" with label="Writing now" value=in_progress_count %}
+    {% include "dashboard/_stat.html" with label="Submitted" value=submitted_count highlight=True %}
+    {% include "dashboard/_stat.html" with label="Not yet on main portal" value=unpushed_count %}
+</div>
+
+{% if dashboard_is_manager %}
+<div class="card p-5 mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div>
+        <p class="font-semibold">Push results to the main portal</p>
+        <p class="text-sm text-muted-foreground">Writes each submitted score into the {{ exam.get_score_target_display }} slot for {{ exam.subject }}, {{ exam.get_term_display }}. The other CA/exam scores are not touched. Safe to click again — results already sent are skipped.</p>
+    </div>
+    <form method="post" action="{% url 'dashboard:push_results' exam.id %}"
+          onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='Pushing…';">
+        {% csrf_token %}
+        <button type="submit" class="btn-primary whitespace-nowrap" {% if not unpushed_count %}disabled{% endif %}>Push {{ unpushed_count }} result{{ unpushed_count|pluralize }}</button>
+    </form>
+</div>
+{% else %}
+<div class="rounded-lg border bg-muted px-4 py-3 text-sm text-muted-foreground mb-6">
+    Management sends these scores to the main portal.
+</div>
+{% endif %}
+
+<div class="card overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead class="bg-muted text-muted-foreground text-left">
+            <tr>
+                <th class="px-4 py-3 font-semibold">Student</th>
+                <th class="px-4 py-3 font-semibold">ID</th>
+                <th class="px-4 py-3 font-semibold">Status</th>
+                <th class="px-4 py-3 font-semibold">Score</th>
+                <th class="px-4 py-3 font-semibold">Main portal</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y">
+            {% for submission in submissions %}
+            <tr>
+                <td class="px-4 py-3 font-medium">{{ submission.student.full_name }}</td>
+                <td class="px-4 py-3 text-muted-foreground whitespace-nowrap">{{ submission.student.student_id }}</td>
+                <td class="px-4 py-3">{% if submission.status == "submitted" %}Submitted{% else %}<span class="text-accent-foreground font-semibold">Writing…</span>{% endif %}</td>
+                <td class="px-4 py-3 font-semibold">{% if submission.status == "submitted" %}{{ submission.score|floatformat:"-2" }} / {{ exam.total_marks }}{% else %}—{% endif %}</td>
+                <td class="px-4 py-3">
+                    {% if submission.pushed_to_raddai %}
+                    <span class="rounded-full bg-secondary text-secondary-foreground px-2.5 py-1 text-xs font-semibold">Sent</span>
+                    {% elif submission.status == "submitted" %}
+                    <span class="rounded-full bg-accent text-accent-foreground px-2.5 py-1 text-xs font-semibold">Not sent</span>
+                    {% else %}—{% endif %}
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="px-4 py-10 text-center text-muted-foreground">No student has started this exam yet.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

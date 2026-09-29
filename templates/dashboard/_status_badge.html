@@ -1,0 +1,5 @@
+{% if exam.is_published %}
+<span class="inline-block rounded-full bg-secondary text-secondary-foreground px-2.5 py-1 text-xs font-semibold">Published</span>
+{% else %}
+<span class="inline-block rounded-full bg-accent text-accent-foreground px-2.5 py-1 text-xs font-semibold">Draft</span>
+{% endif %}

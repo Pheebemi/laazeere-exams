@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
@@ -44,10 +45,26 @@ class Exam(models.Model):
     opens_at = models.DateTimeField()
     closes_at = models.DateTimeField()
     is_published = models.BooleanField(default=False)
+    # Teachers only see and edit exams they created; management sees all.
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
 
     def save(self, *args, **kwargs):
         self.total_marks = self.SCORE_TARGET_MAX_MARKS[self.score_target]
         super().save(*args, **kwargs)
+
+    @property
+    def author_name(self):
+        """Who created the exam, by their synced name. Select-related created_by's profiles to avoid N+1."""
+        user = self.created_by
+        if user is None:
+            return ""
+        for relation in ("syncedstaff", "syncedmanager"):
+            profile = getattr(user, relation, None)
+            if profile is not None:
+                return profile.full_name
+        return user.username
 
     @property
     def raddai_score_field(self):

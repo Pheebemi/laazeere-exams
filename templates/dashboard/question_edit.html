@@ -1,7 +1,7 @@
-{% extends "layout/base.html" %}
-{% block title %}Edit Question — Laazeere Academy Exam Portal{% endblock %}
+{% extends "layout/dashboard.html" %}
+{% block title %}Edit question{% endblock %}
 {% block content %}
-<section class="max-w-3xl mx-auto px-4 sm:px-6 py-10">
+<section class="max-w-3xl">
     <a href="{% url 'dashboard:exam_edit' exam.id %}" class="text-sm text-muted-foreground hover:text-primary">&larr; Back to {{ exam.subject }} exam</a>
     <h1 class="text-2xl font-extrabold mt-2 mb-6">Edit Question</h1>
 

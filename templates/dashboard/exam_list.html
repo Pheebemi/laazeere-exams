@@ -1,0 +1,67 @@
+{% extends "layout/dashboard.html" %}
+{% block title %}Exams{% endblock %}
+{% block content %}
+{% url 'dashboard:exam_create' as create_url %}
+{% if dashboard_is_manager %}
+{% include "dashboard/_page_header.html" with title="All exams" subtitle="Every exam set by any teacher or by management." action_url=create_url action_label="+ New exam" %}
+{% else %}
+{% include "dashboard/_page_header.html" with title="My exams" subtitle="Exams you've set. Management publishes them when they're ready." action_url=create_url action_label="+ New exam" %}
+{% endif %}
+
+<form method="get" class="card p-4 mb-4 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+    <div class="sm:col-span-2">
+        <label for="q">Subject</label>
+        <input type="text" id="q" name="q" value="{{ query }}" placeholder="Search by subject">
+    </div>
+    <div>
+        <label for="class">Class</label>
+        <select id="class" name="class" onchange="this.form.submit()">
+            <option value="">All classes</option>
+            {% for klass in classes %}<option value="{{ klass.id }}" {% if class_id == klass.id|stringformat:"d" %}selected{% endif %}>{{ klass }}</option>{% endfor %}
+        </select>
+    </div>
+    <div>
+        <label for="status">Status</label>
+        <select id="status" name="status" onchange="this.form.submit()">
+            <option value="">All</option>
+            <option value="draft" {% if status == "draft" %}selected{% endif %}>Drafts</option>
+            <option value="published" {% if status == "published" %}selected{% endif %}>Published</option>
+        </select>
+    </div>
+</form>
+
+<div class="card overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead class="bg-muted text-muted-foreground text-left">
+            <tr>
+                <th class="px-4 py-3 font-semibold">Subject</th>
+                <th class="px-4 py-3 font-semibold">Class</th>
+                <th class="px-4 py-3 font-semibold">Slot</th>
+                <th class="px-4 py-3 font-semibold">Opens</th>
+                {% if dashboard_is_manager %}<th class="px-4 py-3 font-semibold">Set by</th>{% endif %}
+                <th class="px-4 py-3 font-semibold">Submitted</th>
+                <th class="px-4 py-3 font-semibold">Status</th>
+                <th class="px-4 py-3"></th>
+            </tr>
+        </thead>
+        <tbody class="divide-y">
+            {% for exam in exams %}
+            <tr class="hover:bg-muted/50">
+                <td class="px-4 py-3 font-medium"><a href="{% url 'dashboard:exam_edit' exam.id %}" class="text-primary hover:underline">{{ exam.subject }}</a></td>
+                <td class="px-4 py-3 whitespace-nowrap">{{ exam.klass }}</td>
+                <td class="px-4 py-3 whitespace-nowrap">{{ exam.get_score_target_display }}</td>
+                <td class="px-4 py-3 text-muted-foreground whitespace-nowrap">{{ exam.opens_at|date:"M j, g:i A" }}</td>
+                {% if dashboard_is_manager %}<td class="px-4 py-3 text-muted-foreground">{{ exam.author_name|default:"—" }}</td>{% endif %}
+                <td class="px-4 py-3">{{ exam.submitted }}</td>
+                <td class="px-4 py-3">{% include "dashboard/_status_badge.html" %}</td>
+                <td class="px-4 py-3 text-right whitespace-nowrap">
+                    <a href="{% url 'dashboard:exam_results' exam.id %}" class="text-muted-foreground hover:text-primary font-medium">Results</a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="8" class="px-4 py-10 text-center text-muted-foreground">No exams found. <a href="{{ create_url }}" class="text-primary font-semibold hover:underline">Create one</a>.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

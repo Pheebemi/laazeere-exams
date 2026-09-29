@@ -1,0 +1,5 @@
+<a href="{{ href }}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition {% if section == key %}bg-primary text-primary-foreground{% else %}text-muted-foreground hover:bg-muted hover:text-foreground{% endif %}">
+    <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="{{ icon }}"/></svg>
+    <span class="flex-1">{{ label }}</span>
+    {% if badge %}<span class="rounded-full px-2 py-0.5 text-xs font-bold {% if section == key %}bg-primary-foreground text-primary{% else %}bg-accent text-accent-foreground{% endif %}">{{ badge }}</span>{% endif %}
+</a>

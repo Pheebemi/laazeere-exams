@@ -1,0 +1,33 @@
+{% extends "layout/dashboard.html" %}
+{% block title %}Overview{% endblock %}
+{% block content %}
+{% url 'dashboard:exam_create' as create_url %}
+{% include "dashboard/_page_header.html" with title="Welcome, "|add:dashboard_profile.full_name subtitle="Set questions for your classes. Management reviews, publishes and sends the scores to the main portal." action_url=create_url action_label="+ New exam" %}
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+    {% include "dashboard/_stat.html" with label="My exams" value=stats.total %}
+    {% include "dashboard/_stat.html" with label="Drafts" value=stats.drafts %}
+    {% include "dashboard/_stat.html" with label="Published" value=stats.published highlight=True %}
+    {% include "dashboard/_stat.html" with label="Scripts submitted" value=stats.submitted %}
+</div>
+
+<div class="card">
+    <div class="flex items-center justify-between p-5 border-b">
+        <h2 class="font-bold">Recent exams</h2>
+        <a href="{% url 'dashboard:exam_list' %}" class="text-sm font-semibold text-primary hover:underline">All my exams &rarr;</a>
+    </div>
+    <ul class="divide-y">
+        {% for exam in recent %}
+        <li class="flex items-center justify-between gap-4 px-5 py-3">
+            <div class="min-w-0">
+                <a href="{% url 'dashboard:exam_edit' exam.id %}" class="font-semibold hover:text-primary">{{ exam.subject }}</a>
+                <p class="text-sm text-muted-foreground">{{ exam.klass }} &middot; {{ exam.get_score_target_display }} &middot; opens {{ exam.opens_at|date:"M j, g:i A" }}</p>
+            </div>
+            {% include "dashboard/_status_badge.html" %}
+        </li>
+        {% empty %}
+        <li class="px-5 py-10 text-center text-sm text-muted-foreground">You haven't set any exams yet. <a href="{{ create_url }}" class="text-primary font-semibold hover:underline">Create your first one</a>.</li>
+        {% endfor %}
+    </ul>
+</div>
+{% endblock %}

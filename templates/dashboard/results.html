@@ -1,0 +1,58 @@
+{% extends "layout/dashboard.html" %}
+{% block title %}Push results{% endblock %}
+{% block content %}
+<div class="flex flex-wrap items-end justify-between gap-4 mb-6">
+    <div>
+        <h1 class="text-2xl font-extrabold">Push results</h1>
+        <p class="text-sm text-muted-foreground mt-1">Send submitted scores into each student's CA/exam slot on the main portal. Only the matching slot is written — other scores stay as they are.</p>
+    </div>
+    <form method="post" action="{% url 'dashboard:push_all' %}"
+          onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='Pushing…';">
+        {% csrf_token %}
+        <button type="submit" class="btn-primary" {% if not dashboard_unpushed_count %}disabled{% endif %}>Push all ({{ dashboard_unpushed_count }})</button>
+    </form>
+</div>
+
+<div class="card overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead class="bg-muted text-muted-foreground text-left">
+            <tr>
+                <th class="px-4 py-3 font-semibold">Subject</th>
+                <th class="px-4 py-3 font-semibold">Class</th>
+                <th class="px-4 py-3 font-semibold">Slot</th>
+                <th class="px-4 py-3 font-semibold">Term</th>
+                <th class="px-4 py-3 font-semibold">Submitted</th>
+                <th class="px-4 py-3 font-semibold">To push</th>
+                <th class="px-4 py-3"></th>
+            </tr>
+        </thead>
+        <tbody class="divide-y">
+            {% for exam in exams %}
+            <tr class="hover:bg-muted/50">
+                <td class="px-4 py-3 font-medium"><a href="{% url 'dashboard:exam_results' exam.id %}" class="text-primary hover:underline">{{ exam.subject }}</a></td>
+                <td class="px-4 py-3 whitespace-nowrap">{{ exam.klass }}</td>
+                <td class="px-4 py-3 whitespace-nowrap">{{ exam.get_score_target_display }}</td>
+                <td class="px-4 py-3 whitespace-nowrap">{{ exam.get_term_display }}</td>
+                <td class="px-4 py-3">{{ exam.submitted }}</td>
+                <td class="px-4 py-3">
+                    {% if exam.unpushed %}<span class="rounded-full bg-accent text-accent-foreground px-2.5 py-1 text-xs font-bold">{{ exam.unpushed }}</span>
+                    {% else %}<span class="rounded-full bg-secondary text-secondary-foreground px-2.5 py-1 text-xs font-semibold">All sent</span>{% endif %}
+                </td>
+                <td class="px-4 py-3 text-right">
+                    {% if exam.unpushed %}
+                    <form method="post" action="{% url 'dashboard:push_results' exam.id %}"
+                          onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='Pushing…';">
+                        {% csrf_token %}
+                        <input type="hidden" name="next" value="results">
+                        <button type="submit" class="btn-outline whitespace-nowrap">Push {{ exam.unpushed }}</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="7" class="px-4 py-10 text-center text-muted-foreground">No submitted scripts yet.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
