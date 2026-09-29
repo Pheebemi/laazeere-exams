@@ -57,6 +57,36 @@ class Exam(models.Model):
         now = now or timezone.now()
         return self.is_published and self.opens_at <= now <= self.closes_at
 
+    @property
+    def is_locked(self):
+        """Once any student has started, questions/marks can't change without corrupting grading."""
+        return self.submissions.exists()
+
+    @property
+    def allocated_marks(self):
+        return sum(q.marks for q in self.questions.all())
+
+    def publish_problems(self):
+        problems = []
+        questions = list(self.questions.prefetch_related("choices"))
+        if not questions:
+            problems.append("Add at least one question.")
+        allocated = sum(q.marks for q in questions)
+        if questions and allocated != self.total_marks:
+            problems.append(
+                f"Question marks add up to {allocated}, but this {self.get_score_target_display()} "
+                f"must total exactly {self.total_marks}."
+            )
+        for i, q in enumerate(questions, start=1):
+            choices = list(q.choices.all())
+            if len(choices) < 2:
+                problems.append(f"Question {i} needs at least 2 options.")
+            if sum(1 for c in choices if c.is_correct) != 1:
+                problems.append(f"Question {i} must have exactly one correct answer.")
+        if self.closes_at <= self.opens_at:
+            problems.append("Closing time must be after opening time.")
+        return problems
+
     def __str__(self):
         return f"{self.subject} - {self.klass} - {self.get_score_target_display()}"
 

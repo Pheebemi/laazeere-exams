@@ -1,0 +1,20 @@
+{% if form.non_field_errors %}
+<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-destructive">
+    {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
+</div>
+{% endif %}
+
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    {% include "includes/field.html" with field=form.subject %}
+    {% include "includes/field.html" with field=form.klass %}
+    {% include "includes/field.html" with field=form.academic_year %}
+    {% include "includes/field.html" with field=form.term %}
+</div>
+
+{% include "includes/field.html" with field=form.score_target %}
+
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+    {% include "includes/field.html" with field=form.duration_minutes %}
+    {% include "includes/field.html" with field=form.opens_at %}
+    {% include "includes/field.html" with field=form.closes_at %}
+</div>

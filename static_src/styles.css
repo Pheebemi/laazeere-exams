@@ -53,8 +53,14 @@
   }
   input[type="text"],
   input[type="password"],
+  input[type="number"],
+  input[type="datetime-local"],
+  textarea,
   select {
-    @apply mt-1.5 block w-full rounded-lg border border-input bg-card px-4 py-2.5 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/20;
+    @apply mt-1.5 block w-full rounded-lg border border-input bg-card px-4 py-2.5 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/20 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed;
+  }
+  label {
+    @apply text-sm font-semibold;
   }
 }
 
@@ -62,14 +68,26 @@
   .btn-primary {
     @apply inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary-hover;
   }
+  .btn-primary:disabled {
+    @apply opacity-50 cursor-not-allowed hover:bg-primary;
+  }
   .btn-outline {
     @apply inline-flex items-center justify-center rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground transition hover:bg-muted;
+  }
+  .btn-danger {
+    @apply inline-flex items-center justify-center rounded-lg border border-red-200 bg-card px-3 py-2 text-sm font-medium text-destructive transition hover:bg-red-50;
+  }
+  .field-error {
+    @apply mt-1 text-xs font-medium text-destructive;
+  }
+  .field-help {
+    @apply mt-1 text-xs text-muted-foreground;
   }
   .card {
     @apply rounded-xl border border-border bg-card text-card-foreground shadow-sm;
   }
   /* A single MCQ choice on the take-exam form. */
   .choice-card {
-    @apply relative flex items-start gap-3 rounded-xl border-2 border-border bg-card p-4 cursor-pointer transition hover:bg-muted has-checked:border-primary has-checked:bg-secondary has-checked:ring-2 has-checked:ring-ring/20;
+    @apply relative flex items-start gap-3 rounded-xl border-2 border-border bg-card p-4 font-normal cursor-pointer transition hover:bg-muted has-checked:border-primary has-checked:bg-secondary has-checked:ring-2 has-checked:ring-ring/20;
   }
 }

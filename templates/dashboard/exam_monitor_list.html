@@ -7,7 +7,7 @@
             <h1 class="text-2xl font-extrabold">Exams</h1>
             <p class="text-sm text-muted-foreground">Monitor submissions and push results to the main portal.</p>
         </div>
-        <a href="/admin/exams/exam/add/" class="btn-primary">+ New Exam</a>
+        <a href="{% url 'dashboard:exam_create' %}" class="btn-primary">+ New Exam</a>
     </div>
 
     <div class="card overflow-hidden">
@@ -19,6 +19,7 @@
                     <th class="px-4 py-3 font-semibold">Slot</th>
                     <th class="px-4 py-3 font-semibold">Opens</th>
                     <th class="px-4 py-3 font-semibold">Status</th>
+                    <th class="px-4 py-3"></th>
                 </tr>
             </thead>
             <tbody class="divide-y">
@@ -35,9 +36,10 @@
                         <span class="rounded-full bg-accent text-accent-foreground px-2.5 py-1 text-xs font-semibold">Draft</span>
                         {% endif %}
                     </td>
+                    <td class="px-4 py-3 text-right"><a href="{% url 'dashboard:exam_edit' exam.id %}" class="text-muted-foreground hover:text-primary font-medium">Edit</a></td>
                 </tr>
                 {% empty %}
-                <tr><td colspan="5" class="px-4 py-10 text-center text-muted-foreground">No exams yet.</td></tr>
+                <tr><td colspan="6" class="px-4 py-10 text-center text-muted-foreground">No exams yet. <a href="{% url 'dashboard:exam_create' %}" class="text-primary font-semibold hover:underline">Create the first one</a>.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
