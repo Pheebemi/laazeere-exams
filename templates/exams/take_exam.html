@@ -31,7 +31,7 @@
             </a>
             {% endif %}
             <div class="space-y-2.5">
-                {% for choice in question.choices.all %}
+                {% for choice in question.shuffled_choices %}
                 <label class="choice-card">
                     <input type="radio" name="question_{{ question.id }}" value="{{ choice.id }}" class="mt-0.5 accent-primary">
                     <span class="text-sm">{{ choice.text }}</span>

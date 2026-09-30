@@ -10,9 +10,9 @@ run and deleted after it (see README → Load testing).
 Needs Python 3 and requests:  pip install requests
 
 Usage:
-  python load_test.py --exam 12 --password THE-TEST-PASSWORD
-  python load_test.py --exam 12 --password THE-TEST-PASSWORD --students 200 --ramp 30
-  python load_test.py --exam 12 --password THE-TEST-PASSWORD --students 100 --first 201   # re-run on fresh accounts
+  python load_test.py --exam 12 --code 482731 --password THE-TEST-PASSWORD
+  python load_test.py --exam 12 --code 482731 --password THE-TEST-PASSWORD --students 200 --ramp 30
+  python load_test.py --exam 12 --code 482731 --password THE-TEST-PASSWORD --students 100 --first 201   # re-run on fresh accounts
 
 --ramp spreads the logins over that many seconds (students arriving in the
 room); 0 means everyone logs in at the same instant. Submits always fire
@@ -37,6 +37,7 @@ def main():
     parser.add_argument("--url", default="https://laazeere-exams.vercel.app")
     parser.add_argument("--exam", type=int, required=True, help="id of the LOAD TEST exam")
     parser.add_argument("--password", required=True, help="password of the LOADTEST accounts")
+    parser.add_argument("--code", required=True, help="the exam's access code (shown on its dashboard page)")
     parser.add_argument("--students", type=int, default=100)
     parser.add_argument("--first", type=int, default=1, help="first account number (use fresh accounts for a re-run)")
     parser.add_argument("--prefix", default="LOADTEST-")
@@ -145,7 +146,7 @@ def _up_to_exam_open(session, base, args, who, record):
     started = time.perf_counter()
     response = session.post(
         f"{base}/{args.exam}/start/",
-        data={"csrfmiddlewaretoken": session.cookies.get("csrftoken", "")},
+        data={"csrfmiddlewaretoken": session.cookies.get("csrftoken", ""), "access_code": args.code},
         timeout=60,
     )
     on_questions = response.status_code == 200 and f"/{args.exam}/take/" in response.url

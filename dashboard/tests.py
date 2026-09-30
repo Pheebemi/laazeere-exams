@@ -422,7 +422,9 @@ class QuestionPictureTests(AuthoringTestBase):
 
         submission = self.start_submission()
         self.client.force_login(submission.student.user)
-        response = self.client.get(reverse("exams:take_exam", args=[self.exam.id]))
+        response = self.client.post(
+            reverse("exams:start_exam", args=[self.exam.id]), {"access_code": self.exam.access_code}, follow=True
+        )
         self.assertContains(response, question.image.url)
 
 

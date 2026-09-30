@@ -1,3 +1,6 @@
+import random
+import secrets
+
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
@@ -8,8 +11,27 @@ from django.utils import timezone
 from django_ratelimit.decorators import ratelimit
 
 from .decorators import student_required
+from roster.models import SyncedStudent
+
 from .models import Answer, Exam, Submission
 from .services import grade_submission
+
+# Exams this browser session has unlocked with the access code. Starting, and
+# continuing on a new device or after signing in again, both need the code.
+UNLOCKED_EXAMS_KEY = "unlocked_exams"
+
+
+def _is_unlocked(request, exam):
+    return exam.id in request.session.get(UNLOCKED_EXAMS_KEY, [])
+
+
+def _unlock(request, exam):
+    request.session[UNLOCKED_EXAMS_KEY] = [*request.session.get(UNLOCKED_EXAMS_KEY, []), exam.id]
+
+
+def _deadline(submission):
+    exam = submission.exam
+    return min(exam.closes_at, submission.started_at + timezone.timedelta(minutes=exam.duration_minutes))
 
 
 def _get_student_exam(exam_id, student, require_published=True):
@@ -43,6 +65,10 @@ def student_login(request):
         user = authenticate(request, username=username, password=password)
         if user is not None and hasattr(user, "syncedstudent"):
             login(request, user)
+            # This session becomes the only one allowed; any other device is signed out (student_required).
+            SyncedStudent.objects.filter(pk=user.syncedstudent.pk).update(
+                current_session_key=request.session.session_key
+            )
             return redirect("exams:exam_list")
         messages.error(request, "Invalid student ID or password.")
 
@@ -86,30 +112,45 @@ def exam_list(request):
 
 
 @student_required
+@ratelimit(key="user", rate="10/m", method="POST", block=False)
 def start_exam(request, exam_id):
     """GET shows what's about to be taken (so a student can't open the wrong CA by
-    accident); the timer only starts on POST, when they confirm."""
+    accident) and asks for the access code the invigilator gives out. The timer
+    only starts on POST with the right code. A student already writing who comes
+    back on a new device or after signing in again enters the code to continue."""
     student = request.user.syncedstudent
     exam = _get_student_exam(exam_id, student)
 
-    existing = Submission.objects.filter(student=student, exam=exam).first()
+    existing = Submission.objects.filter(student=student, exam=exam).select_related("exam").first()
     if existing and existing.status == Submission.Status.SUBMITTED:
         return redirect("exams:already_submitted", exam_id=exam.id)
-    if existing:
+    if existing and timezone.now() >= _deadline(existing):
+        _finalize_submission(existing, {})
+        return redirect("exams:already_submitted", exam_id=exam.id)
+    if existing and _is_unlocked(request, exam):
         return redirect("exams:take_exam", exam_id=exam.id)
 
-    if not exam.is_open():
+    if not existing and not exam.is_open():
         messages.error(request, f"{exam.subject} {exam.get_score_target_display()} is not open right now.")
         return redirect("exams:exam_list")
 
     if request.method == "POST":
-        Submission.objects.get_or_create(student=student, exam=exam)
-        return redirect("exams:take_exam", exam_id=exam.id)
+        code = request.POST.get("access_code", "").strip()
+        if getattr(request, "limited", False):
+            messages.error(request, "Too many wrong codes. Wait a minute, then try again.")
+        elif secrets.compare_digest(code, exam.access_code):
+            if not existing:
+                Submission.objects.get_or_create(student=student, exam=exam)
+            _unlock(request, exam)
+            return redirect("exams:take_exam", exam_id=exam.id)
+        else:
+            messages.error(request, "That access code is not correct. Ask your teacher for the code.")
 
     return render(request, "exams/start_exam.html", {
         "exam": exam,
         "student": student,
         "question_count": exam.questions.count(),
+        "resuming": existing is not None,
     })
 
 
@@ -122,12 +163,24 @@ def take_exam(request, exam_id):
     if submission.status == Submission.Status.SUBMITTED:
         return redirect("exams:already_submitted", exam_id=exam.id)
 
-    deadline = min(exam.closes_at, submission.started_at + timezone.timedelta(minutes=exam.duration_minutes))
+    deadline = _deadline(submission)
     if timezone.now() >= deadline:
         _finalize_submission(submission, request.POST)
         return redirect("exams:already_submitted", exam_id=exam.id)
 
-    questions = exam.questions.prefetch_related("choices")
+    if not _is_unlocked(request, exam):
+        messages.info(request, "Enter the access code to continue.")
+        return redirect("exams:start_exam", exam_id=exam.id)
+
+    # Every student gets the questions, and each question's options, in their
+    # own order — seeded by their submission, so a refresh keeps the same order.
+    # Grading is by choice id, so the order never affects marks.
+    questions = list(exam.questions.prefetch_related("choices"))
+    random.Random(submission.pk).shuffle(questions)
+    for question in questions:
+        question.shuffled_choices = list(question.choices.all())
+        random.Random(f"{submission.pk}-{question.pk}").shuffle(question.shuffled_choices)
+
     return render(
         request,
         "exams/take_exam.html",
@@ -143,6 +196,8 @@ def submit_exam(request, exam_id):
 
     if request.method != "POST":
         return redirect("exams:take_exam", exam_id=exam.id)
+    if not _is_unlocked(request, exam):
+        return redirect("exams:start_exam", exam_id=exam.id)
 
     _finalize_submission(submission, request.POST)
     return redirect("exams:already_submitted", exam_id=exam.id)

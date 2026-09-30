@@ -13,7 +13,7 @@ before real students rely on this system.
 Usage:
   python manage.py runserver 8001   # in one terminal
   python scripts/concurrency_test.py --base-url http://localhost:8001 \
-      --exam-id 3 --username STU-TEST-001 --password STU-TEST-001 --concurrency 30
+      --exam-id 3 --code 482731 --username STU-TEST-001 --password STU-TEST-001 --concurrency 30
 """
 
 import argparse
@@ -28,6 +28,7 @@ def main():
     parser.add_argument("--exam-id", type=int, required=True)
     parser.add_argument("--username", required=True)
     parser.add_argument("--password", required=True)
+    parser.add_argument("--code", required=True, help="the exam's access code")
     parser.add_argument("--concurrency", type=int, default=30)
     args = parser.parse_args()
 
@@ -39,7 +40,10 @@ def main():
         data={"username": args.username, "password": args.password, "csrfmiddlewaretoken": csrftoken},
     )
 
-    session.post(f"{args.base_url}/{args.exam_id}/start/", data={"csrfmiddlewaretoken": session.cookies["csrftoken"]})
+    session.post(
+        f"{args.base_url}/{args.exam_id}/start/",
+        data={"csrfmiddlewaretoken": session.cookies["csrftoken"], "access_code": args.code},
+    )
     session.get(f"{args.base_url}/{args.exam_id}/take/")
     csrftoken = session.cookies["csrftoken"]
     cookies = session.cookies.get_dict()

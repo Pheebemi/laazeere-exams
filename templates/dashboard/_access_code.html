@@ -1,0 +1,13 @@
+<div class="card p-5 mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div>
+        <p class="text-sm text-muted-foreground">Access code</p>
+        <p class="text-3xl font-extrabold tracking-[0.3em] text-primary tabular-nums">{{ exam.access_code }}</p>
+        <p class="text-sm text-muted-foreground mt-1">Write this on the board when the {% if exam.is_ca %}CA{% else %}exam{% endif %} starts. Students need it to begin, and to continue on another device.</p>
+    </div>
+    <form method="post" action="{% url 'dashboard:exam_new_code' exam.id %}"
+          onsubmit="return confirm('Make a new access code? The current one will stop working for anyone who has not started yet.');">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.path }}">
+        <button type="submit" class="btn-outline whitespace-nowrap">New code</button>
+    </form>
+</div>
