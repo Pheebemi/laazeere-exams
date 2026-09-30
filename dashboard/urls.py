@@ -24,4 +24,5 @@ urlpatterns = [
     path("students/", views.students, name="students"),
     path("staff/", views.staff, name="staff"),
     path("sync/", views.sync_roster_now, name="sync_roster_now"),
+    path("answers/clear/", views.clear_answers, name="clear_answers"),
 ]

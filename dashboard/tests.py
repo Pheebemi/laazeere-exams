@@ -13,7 +13,7 @@ from django.utils import timezone
 from PIL import Image
 
 from dashboard.forms import MAX_IMAGE_UPLOAD_BYTES
-from exams.models import Exam, Submission
+from exams.models import Answer, Choice, Exam, Question, Submission
 from roster.models import (
     SyncedAcademicYear, SyncedClass, SyncedManager, SyncedStaff, SyncedStudent, SyncedSubject,
 )
@@ -424,3 +424,67 @@ class QuestionPictureTests(AuthoringTestBase):
         self.client.force_login(submission.student.user)
         response = self.client.get(reverse("exams:take_exam", args=[self.exam.id]))
         self.assertContains(response, question.image.url)
+
+
+class ClearAnswersTests(AuthoringTestBase):
+    """Management clears one term's saved answer choices; scores and everything else stay."""
+
+    def setUp(self):
+        super().setUp()
+        now = timezone.now()
+        self.student = self.start_submission().student  # STU1, in-progress script on self.exam
+        Submission.objects.all().delete()
+
+        self.first_term = self.exam  # first term, closed below
+        self.second_term = Exam.objects.create(
+            subject=self.subject, klass=self.klass, academic_year=self.year, term="second", score_target="ca1",
+            opens_at=now - timedelta(days=3), closes_at=now - timedelta(days=2),
+        )
+        self.still_open = Exam.objects.create(
+            subject=self.subject, klass=self.klass, academic_year=self.year, term="first", score_target="ca2",
+            opens_at=now - timedelta(hours=1), closes_at=now + timedelta(hours=1),
+        )
+        Exam.objects.filter(pk=self.first_term.pk).update(
+            opens_at=now - timedelta(days=3), closes_at=now - timedelta(days=2)
+        )
+        self.cleared = self.script(self.first_term)
+        self.kept_other_term = self.script(self.second_term)
+        self.kept_open_exam = self.script(self.still_open)
+        self.url = reverse("dashboard:clear_answers")
+
+    def script(self, exam):
+        question = Question.objects.create(exam=exam, text="Q?", marks=10)
+        right = Choice.objects.create(question=question, text="A", is_correct=True)
+        submission = Submission.objects.create(
+            student=self.student, exam=exam, status=Submission.Status.SUBMITTED, score=10
+        )
+        return Answer.objects.create(submission=submission, question=question, selected_choice=right)
+
+    def clear(self, follow=False, **extra):
+        return self.client.post(self.url, {"year": self.year.id, "term": "first", **extra}, follow=follow)
+
+    def test_teachers_cannot_clear(self):
+        self.assertRedirects(self.client.get(self.url), reverse("dashboard:home"))
+        self.clear(confirm="yes")
+        self.assertEqual(Answer.objects.count(), 3)
+
+    def test_preview_counts_only_finished_exams_of_that_term(self):
+        self.login_as_manager()
+        preview = self.client.get(self.url, {"year": self.year.id, "term": "first"}).context["preview"]
+        self.assertEqual(
+            (preview["closed_exams"], preview["open_exams"], preview["scripts"], preview["answers"]), (1, 1, 1, 1)
+        )
+
+    def test_nothing_is_cleared_without_confirming(self):
+        self.login_as_manager()
+        self.clear()
+        self.assertEqual(Answer.objects.count(), 3)
+
+    def test_clears_only_that_terms_finished_exams_and_keeps_scores(self):
+        self.login_as_manager()
+        response = self.clear(confirm="yes", follow=True)
+        self.assertContains(response, "Cleared 1 saved answers")
+        self.assertFalse(Answer.objects.filter(pk=self.cleared.pk).exists())
+        self.assertTrue(Answer.objects.filter(pk=self.kept_other_term.pk).exists())
+        self.assertTrue(Answer.objects.filter(pk=self.kept_open_exam.pk).exists())
+        self.assertEqual(Submission.objects.get(exam=self.first_term).score, 10)

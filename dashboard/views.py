@@ -17,9 +17,9 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 from django_ratelimit.decorators import ratelimit
 
-from exams.models import Choice, Exam, Question, Submission
+from exams.models import Answer, Choice, Exam, Question, Submission
 from exams.services import push_submission_to_raddai
-from roster.models import SyncedClass, SyncedManager, SyncedStaff, SyncedStudent
+from roster.models import SyncedAcademicYear, SyncedClass, SyncedManager, SyncedStaff, SyncedStudent
 
 from .decorators import dashboard_required, is_manager, is_teacher, management_required
 from .forms import ExamForm, QuestionForm
@@ -31,6 +31,11 @@ from .forms import ExamForm, QuestionForm
 # next click.
 PUSH_TIME_BUDGET_SECONDS = 40
 PUSH_REQUEST_TIMEOUT_SECONDS = 10
+
+# Clearing a full term can mean a million answer rows; delete in batches and
+# stop inside Vercel's 60s limit — the next click carries on where this ended.
+CLEAR_TIME_BUDGET_SECONDS = 40
+CLEAR_BATCH_SIZE = 10_000
 
 EXAM_RELATED = ("subject", "klass", "created_by__syncedstaff", "created_by__syncedmanager")
 
@@ -310,6 +315,82 @@ def staff(request):
     return _render(request, "dashboard/staff.html", "staff", {
         "managers": SyncedManager.objects.order_by("-is_active", "full_name"),
         "teachers": SyncedStaff.objects.order_by("-is_active", "full_name"),
+    })
+
+
+# --- Clearing old answers (management only) ---------------------------------
+
+
+def _clearable_answers(year_id, term):
+    """
+    Answers of submitted scripts in that term's *closed* exams. The score is
+    stored on the submission, so these are only a record of which option each
+    student picked — clearing them keeps every score, the push to the main
+    portal, and the exam's lock intact. Still-open exams are never touched.
+    """
+    return Answer.objects.filter(
+        submission__exam__academic_year_id=year_id,
+        submission__exam__term=term,
+        submission__exam__closes_at__lt=timezone.now(),
+        submission__status=Submission.Status.SUBMITTED,
+    )
+
+
+@management_required
+def clear_answers(request):
+    years = SyncedAcademicYear.objects.order_by("-start_date")
+    year_id = request.POST.get("year") or request.GET.get("year", "")
+    term = request.POST.get("term") or request.GET.get("term", "")
+    year = years.filter(pk=year_id).first() if year_id.isdigit() else None
+    term_ok = term in Exam.Term.values
+
+    if request.method == "POST":
+        if not (year and term_ok):
+            messages.error(request, "Pick a session and a term first.")
+        elif request.POST.get("confirm") != "yes":
+            messages.error(request, "Tick the box to confirm before clearing.")
+        else:
+            answers = _clearable_answers(year.pk, term)
+            deadline = time.monotonic() + CLEAR_TIME_BUDGET_SECONDS
+            cleared = 0
+            while time.monotonic() < deadline:
+                batch = list(answers.values_list("id", flat=True)[:CLEAR_BATCH_SIZE])
+                if not batch:
+                    break
+                Answer.objects.filter(id__in=batch).delete()
+                cleared += len(batch)
+            left = answers.count()
+            label = f"{Exam.Term(term).label}, {year.name}"
+            if cleared:
+                messages.success(request, f"Cleared {cleared:,} saved answers for {label}. All scores are kept.")
+            elif not left:
+                messages.info(request, f"Nothing to clear for {label}.")
+            if left:
+                messages.warning(request, f"{left:,} answers still to clear — click Clear again to finish.")
+        return redirect(f"{reverse('dashboard:clear_answers')}?year={year_id}&term={term}")
+
+    preview = None
+    if year and term_ok:
+        exams = Exam.objects.filter(academic_year=year, term=term)
+        closed = exams.filter(closes_at__lt=timezone.now())
+        answers = _clearable_answers(year.pk, term)
+        preview = {
+            "label": f"{Exam.Term(term).label}, {year.name}",
+            "closed_exams": closed.count(),
+            "open_exams": exams.count() - closed.count(),
+            "scripts": answers.values("submission_id").distinct().count(),
+            "answers": answers.count(),
+            "unpushed": Submission.objects.filter(
+                exam__in=closed, status=Submission.Status.SUBMITTED, pushed_to_raddai=False
+            ).count(),
+        }
+
+    return _render(request, "dashboard/clear_answers.html", "clear_answers", {
+        "years": years,
+        "terms": Exam.Term.choices,
+        "year_id": year_id,
+        "term": term,
+        "preview": preview,
     })
 
 
