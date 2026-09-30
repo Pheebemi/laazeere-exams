@@ -46,7 +46,7 @@ Every new account starts with its own ID/username as the password and is nudged 
 
 ## Exam security
 
-- **Access code**: every exam has a 6-digit code, shown to its teacher and to management on the exam's dashboard pages (with **New code** if it leaks). The invigilator writes it on the board; students must enter it to begin, and again to continue on another device or after signing in again. Wrong codes are limited to 10 a minute per student.
+- **Access code**: issued by **management only**, from the **Access code** column on **All exams** (or the exam's own page) once the exam is published — **Generate code**, then **New code** if it leaks. Until then students can't start the exam. Teachers never see codes; management gives the code to the invigilator, who writes it on the board. Students enter it to begin, and again to continue on another device or after signing in again. Wrong codes are limited to 10 a minute per student.
 - **Shuffled order**: each student gets the questions, and each question's options, in their own order (seeded by their submission, so a refresh keeps it). Grading is by choice id, so order never affects marks.
 - **One device at a time**: a student logging in on a second phone/computer signs out the first one ("opened on another device").
 - **Scores hidden**: students only see "Submitted"; they get their result on the main portal when the school releases it.

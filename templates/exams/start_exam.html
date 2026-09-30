@@ -31,6 +31,11 @@
                 <li>Make sure this is the right {% if exam.is_ca %}CA{% else %}exam{% endif %} before you begin.</li>
             </ul>
             {% endif %}
+            {% if waiting_for_code %}
+            <div class="rounded-lg border bg-accent text-accent-foreground px-4 py-3 text-sm font-medium">
+                This {% if exam.is_ca %}CA{% else %}exam{% endif %} has not been opened yet. Wait for your teacher to give you the access code, then refresh this page.
+            </div>
+            {% else %}
             <form method="post" class="space-y-3">
                 {% csrf_token %}
                 <div>
@@ -41,6 +46,7 @@
                 </div>
                 <button type="submit" class="btn-primary w-full py-3">{% if resuming %}Continue{% else %}Begin{% endif %} {{ exam.get_score_target_display }}</button>
             </form>
+            {% endif %}
         </div>
     </div>
 </section>

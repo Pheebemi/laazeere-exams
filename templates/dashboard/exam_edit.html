@@ -28,7 +28,7 @@
         </div>
     </div>
 
-    {% if exam.is_published %}{% include "dashboard/_access_code.html" %}{% endif %}
+    {% if dashboard_is_manager and exam.is_published %}{% include "dashboard/_access_code.html" %}{% endif %}
 
     {% if not can_edit %}
     <div class="rounded-lg border bg-muted px-4 py-3 text-sm">

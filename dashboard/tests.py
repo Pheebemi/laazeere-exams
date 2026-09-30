@@ -420,6 +420,8 @@ class QuestionPictureTests(AuthoringTestBase):
         self.exam.refresh_from_db()
         self.assertTrue(self.exam.is_published)
 
+        self.client.post(reverse("dashboard:exam_generate_code", args=[self.exam.id]))
+        self.exam.refresh_from_db()
         submission = self.start_submission()
         self.client.force_login(submission.student.user)
         response = self.client.post(
@@ -490,3 +492,42 @@ class ClearAnswersTests(AuthoringTestBase):
         self.assertTrue(Answer.objects.filter(pk=self.kept_other_term.pk).exists())
         self.assertTrue(Answer.objects.filter(pk=self.kept_open_exam.pk).exists())
         self.assertEqual(Submission.objects.get(exam=self.first_term).score, 10)
+
+
+class AccessCodeTests(AuthoringTestBase):
+    """Only management issues access codes; teachers never see them."""
+
+    def setUp(self):
+        super().setUp()
+        Exam.objects.filter(pk=self.exam.pk).update(is_published=True)
+        self.generate = reverse("dashboard:exam_generate_code", args=[self.exam.id])
+
+    def test_teachers_cannot_generate_or_see_codes(self):
+        self.assertRedirects(self.client.post(self.generate), reverse("dashboard:home"))
+        self.exam.refresh_from_db()
+        self.assertEqual(self.exam.access_code, "")
+        Exam.objects.filter(pk=self.exam.pk).update(access_code="482731")
+        self.assertNotContains(self.client.get(reverse("dashboard:exam_results", args=[self.exam.id])), "482731")
+        self.assertNotContains(self.client.get(reverse("dashboard:exam_list")), "482731")
+
+    def test_management_generates_from_the_exam_list(self):
+        self.login_as_manager()
+        listing = reverse("dashboard:exam_list")
+        self.assertContains(self.client.get(listing), "Generate code")
+        response = self.client.post(self.generate, {"next": listing}, follow=True)
+        self.exam.refresh_from_db()
+        self.assertRegex(self.exam.access_code, r"^\d{6}$")
+        self.assertContains(response, self.exam.access_code)
+        self.assertContains(response, "New code")
+
+    def test_new_code_replaces_the_old_one(self):
+        self.login_as_manager()
+        self.client.post(self.generate)
+        self.exam.refresh_from_db()
+        old = self.exam.access_code
+        for _ in range(5):  # a random 6-digit code could repeat by chance; five tries make that negligible
+            self.client.post(self.generate)
+            self.exam.refresh_from_db()
+            if self.exam.access_code != old:
+                break
+        self.assertNotEqual(self.exam.access_code, old)

@@ -539,16 +539,25 @@ def question_delete(request, exam_id, question_id):
     return redirect("dashboard:exam_edit", exam_id=exam.id)
 
 
-@dashboard_required
+@management_required
 @require_POST
-def exam_new_code(request, exam_id):
-    """Replace the access code (e.g. it leaked). Students already writing are unaffected."""
-    exam = _get_exam(request, exam_id)
+def exam_generate_code(request, exam_id):
+    """
+    Management issues (or replaces, if it leaked) an exam's access code.
+    Students can't start without one; those already writing are unaffected by
+    a replacement.
+    """
+    exam = get_object_or_404(Exam.objects.select_related("subject", "klass"), pk=exam_id)
+    replacing = bool(exam.access_code)
     exam.access_code = new_access_code()
     exam.save(update_fields=["access_code"])
-    messages.success(request, f"New access code: {exam.access_code}. The old code no longer works.")
+    messages.success(
+        request,
+        f"{exam.subject} ({exam.klass}) access code: {exam.access_code}"
+        + (". The old code no longer works." if replacing else ""),
+    )
     next_url = request.POST.get("next", "")
-    return redirect(next_url if next_url.startswith("/dashboard/") else reverse("dashboard:exam_results", args=[exam.id]))
+    return redirect(next_url if next_url.startswith("/dashboard/") else reverse("dashboard:exam_list"))
 
 
 @management_required

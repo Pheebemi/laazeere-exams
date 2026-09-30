@@ -25,7 +25,7 @@ class StudentExamBase(TestCase):
         now = timezone.now()
         window = {"opens_at": now - timedelta(hours=1), "closes_at": now + timedelta(hours=1)}
         common = {"subject": maths, "academic_year": year, "term": "first", "is_published": True, **window}
-        self.second_ca = Exam.objects.create(klass=self.jss1a, score_target="ca2", **common)
+        self.second_ca = Exam.objects.create(klass=self.jss1a, score_target="ca2", access_code="482731", **common)
         self.other_class_exam = Exam.objects.create(klass=self.jss1b, score_target="exam", **common)
 
         question = Question.objects.create(exam=self.second_ca, text="2+2?", marks=10)
@@ -116,6 +116,12 @@ class LoginRateLimitTests(TestCase):
 
 class ExamSecurityTests(StudentExamBase):
     """Access code, per-student shuffling, one device at a time, and hidden scores."""
+
+    def test_cannot_start_before_management_issues_a_code(self):
+        Exam.objects.filter(pk=self.second_ca.pk).update(access_code="")
+        response = self.start(code="")
+        self.assertContains(response, "has not been opened yet")
+        self.assertFalse(Submission.objects.exists())
 
     def test_wrong_code_does_not_start(self):
         response = self.start(code="000000" if self.second_ca.access_code != "000000" else "111111")

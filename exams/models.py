@@ -52,7 +52,9 @@ class Exam(models.Model):
     opens_at = models.DateTimeField()
     closes_at = models.DateTimeField()
     is_published = models.BooleanField(default=False)
-    access_code = models.CharField(max_length=6, default=new_access_code)
+    # Empty until management generates one (All exams → Generate code); students
+    # can't start an exam without it, even once it's published.
+    access_code = models.CharField(max_length=6, blank=True, default="")
     # Teachers only see and edit exams they created; management sees all.
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"

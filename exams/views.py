@@ -134,6 +134,17 @@ def start_exam(request, exam_id):
         messages.error(request, f"{exam.subject} {exam.get_score_target_display()} is not open right now.")
         return redirect("exams:exam_list")
 
+    if not exam.access_code:
+        # Management hasn't issued a code yet. Never compare against the empty
+        # code — an empty box would match it.
+        return render(request, "exams/start_exam.html", {
+            "exam": exam,
+            "student": student,
+            "question_count": exam.questions.count(),
+            "resuming": existing is not None,
+            "waiting_for_code": True,
+        })
+
     if request.method == "POST":
         code = request.POST.get("access_code", "").strip()
         if getattr(request, "limited", False):
