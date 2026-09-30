@@ -1,0 +1,81 @@
+{% extends "layout/dashboard.html" %}
+{% block title %}Clear old answers{% endblock %}
+{% block content %}
+<div class="max-w-3xl">
+    {% include "dashboard/_page_header.html" with title="Clear old answers" subtitle="Free up database space by removing the saved answer choices of a finished term. Scores are never touched." %}
+
+    <div class="card p-5 mb-6 text-sm space-y-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+                <p class="font-semibold text-primary mb-1">Kept</p>
+                <ul class="list-disc pl-5 text-muted-foreground space-y-0.5">
+                    <li>Every student's score</li>
+                    <li>Results already on the main portal, and pushing any not yet sent</li>
+                    <li>The exams, their questions and pictures</li>
+                </ul>
+            </div>
+            <div>
+                <p class="font-semibold text-destructive mb-1">Removed</p>
+                <ul class="list-disc pl-5 text-muted-foreground space-y-0.5">
+                    <li>Which option each student picked on each question</li>
+                    <li>So you can no longer check a student's individual answers for that term</li>
+                </ul>
+            </div>
+        </div>
+        <p class="text-muted-foreground">Exams in the term that are still open are skipped automatically.</p>
+    </div>
+
+    <form method="get" class="card p-5 mb-6 grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+        <div>
+            <label for="year">Session</label>
+            <select id="year" name="year" required>
+                <option value="">Choose session</option>
+                {% for year in years %}<option value="{{ year.id }}" {% if year_id == year.id|stringformat:"d" %}selected{% endif %}>{{ year.name }}</option>{% endfor %}
+            </select>
+        </div>
+        <div>
+            <label for="term">Term</label>
+            <select id="term" name="term" required>
+                <option value="">Choose term</option>
+                {% for value, label in terms %}<option value="{{ value }}" {% if term == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            </select>
+        </div>
+        <button type="submit" class="btn-outline">Check what will be cleared</button>
+    </form>
+
+    {% if preview %}
+    <div class="card p-5">
+        <h2 class="font-bold mb-4">{{ preview.label }}</h2>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
+            {% include "dashboard/_stat.html" with label="Finished exams" value=preview.closed_exams %}
+            {% include "dashboard/_stat.html" with label="Still open (skipped)" value=preview.open_exams %}
+            {% include "dashboard/_stat.html" with label="Scripts" value=preview.scripts %}
+            {% include "dashboard/_stat.html" with label="Answers to clear" value=preview.answers highlight=True %}
+        </div>
+
+        {% if preview.unpushed %}
+        <div class="rounded-lg border bg-accent text-accent-foreground px-4 py-3 text-sm mb-4">
+            {{ preview.unpushed }} submitted result{{ preview.unpushed|pluralize }} in this term {{ preview.unpushed|pluralize:"has,have" }} not been pushed to the main portal yet.
+            Clearing is still safe — their scores stay and can be pushed later — but you may want to <a href="{% url 'dashboard:results' %}" class="underline font-semibold">push them first</a>.
+        </div>
+        {% endif %}
+
+        {% if preview.answers %}
+        <form method="post" class="space-y-4"
+              onsubmit="if (!confirm('Clear {{ preview.answers }} saved answers for {{ preview.label }}? This cannot be undone.')) return false; this.querySelector('button').disabled=true; this.querySelector('button').textContent='Clearing…';">
+            {% csrf_token %}
+            <input type="hidden" name="year" value="{{ year_id }}">
+            <input type="hidden" name="term" value="{{ term }}">
+            <label class="flex items-start gap-2 font-normal cursor-pointer">
+                <input type="checkbox" name="confirm" value="yes" required class="accent-primary h-4 w-4 mt-0.5">
+                <span>I understand the answer choices for {{ preview.label }} will be deleted permanently. Scores are kept.</span>
+            </label>
+            <button type="submit" class="btn-danger">Clear {{ preview.answers }} answer{{ preview.answers|pluralize }}</button>
+        </form>
+        {% else %}
+        <p class="text-sm text-muted-foreground">Nothing to clear for this term.</p>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

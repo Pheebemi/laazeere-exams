@@ -56,6 +56,8 @@ Django admin (`/admin/`) still has the same models as a fallback, but it bypasse
 
 After an exam closes, **management** opens **Push results** in the dashboard sidebar and clicks **Push** on an exam (or **Push all**) — pushes every submitted-but-not-yet-pushed submission's score into the matching `Result` slot for that student/subject/academic year/term, without touching the other three slots. Safe to click more than once (already-pushed submissions are skipped). Each click stops after ~40s to stay inside Vercel's 60s limit and says how many are left, so a big batch may need a second click.
 
+**Clearing old answers**: saved answer choices are most of the database (~1M rows a term at full use). Once a term's results are on the main portal, management can open **Clear old answers**, pick the session and term, check the preview and clear them. Scores live on the submission, so every score, the push to the main portal and the exam locks are unaffected; only which option each student picked is removed. Still-open exams are always skipped, and big terms clear in ~40s batches (click again to continue).
+
 Run `python manage.py auto_submit_expired` periodically (same scheduling options as `sync_roster`) to force-submit anyone who abandoned an exam past its deadline, so staff review isn't blocked waiting on stragglers.
 
 ## Deployment (Vercel + Neon)
