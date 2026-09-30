@@ -1,8 +1,15 @@
+import secrets
+
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
 from roster.models import SyncedAcademicYear, SyncedClass, SyncedStudent, SyncedSubject
+
+
+def new_access_code():
+    """Six digits the invigilator writes on the board; students need it to start."""
+    return f"{secrets.randbelow(1_000_000):06d}"
 
 
 class Exam(models.Model):
@@ -45,6 +52,9 @@ class Exam(models.Model):
     opens_at = models.DateTimeField()
     closes_at = models.DateTimeField()
     is_published = models.BooleanField(default=False)
+    # Empty until management generates one (All exams → Generate code); students
+    # can't start an exam without it, even once it's published.
+    access_code = models.CharField(max_length=6, blank=True, default="")
     # Teachers only see and edit exams they created; management sees all.
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"

@@ -13,6 +13,8 @@
     <a href="{% url 'dashboard:exam_edit' exam.id %}" class="btn-outline">View questions</a>
 </div>
 
+{% if dashboard_is_manager and exam.is_published %}{% include "dashboard/_access_code.html" %}{% endif %}
+
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
     {% include "dashboard/_stat.html" with label="Students in class" value=class_size %}
     {% include "dashboard/_stat.html" with label="Writing now" value=in_progress_count %}

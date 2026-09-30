@@ -17,7 +17,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 from django_ratelimit.decorators import ratelimit
 
-from exams.models import Answer, Choice, Exam, Question, Submission
+from exams.models import Answer, Choice, Exam, Question, Submission, new_access_code
 from exams.services import push_submission_to_raddai
 from roster.models import SyncedAcademicYear, SyncedClass, SyncedManager, SyncedStaff, SyncedStudent
 
@@ -537,6 +537,27 @@ def question_delete(request, exam_id, question_id):
         _delete_pictures_after_commit([question.image.name])
     messages.success(request, "Question deleted.")
     return redirect("dashboard:exam_edit", exam_id=exam.id)
+
+
+@management_required
+@require_POST
+def exam_generate_code(request, exam_id):
+    """
+    Management issues (or replaces, if it leaked) an exam's access code.
+    Students can't start without one; those already writing are unaffected by
+    a replacement.
+    """
+    exam = get_object_or_404(Exam.objects.select_related("subject", "klass"), pk=exam_id)
+    replacing = bool(exam.access_code)
+    exam.access_code = new_access_code()
+    exam.save(update_fields=["access_code"])
+    messages.success(
+        request,
+        f"{exam.subject} ({exam.klass}) access code: {exam.access_code}"
+        + (". The old code no longer works." if replacing else ""),
+    )
+    next_url = request.POST.get("next", "")
+    return redirect(next_url if next_url.startswith("/dashboard/") else reverse("dashboard:exam_list"))
 
 
 @management_required

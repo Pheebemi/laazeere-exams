@@ -6,7 +6,7 @@
 
     <div class="card mt-3 overflow-hidden">
         <div class="px-6 py-5 {% if exam.is_ca %}bg-secondary text-secondary-foreground{% else %}bg-accent text-accent-foreground{% endif %}">
-            <p class="text-xs font-bold uppercase tracking-wider">You are about to take</p>
+            <p class="text-xs font-bold uppercase tracking-wider">{% if resuming %}Continue writing{% else %}You are about to take{% endif %}</p>
             <p class="text-3xl font-extrabold mt-1">{{ exam.get_score_target_display }}</p>
             <p class="text-lg font-semibold mt-0.5">{{ exam.subject }} &middot; {{ exam.get_term_display }}</p>
         </div>
@@ -19,15 +19,34 @@
         </dl>
 
         <div class="px-6 py-5 space-y-5">
+            {% if resuming %}
+            <p class="text-sm text-muted-foreground">
+                You already started this {% if exam.is_ca %}CA{% else %}exam{% endif %} and your time is still running.
+                Enter the access code to continue where you stopped.
+            </p>
+            {% else %}
             <ul class="text-sm text-muted-foreground space-y-1.5 list-disc pl-5">
                 <li>The timer starts as soon as you click <span class="font-semibold text-foreground">Begin</span>.</li>
                 <li>You get <span class="font-semibold text-foreground">one attempt</span>. Your answers submit automatically when time runs out.</li>
                 <li>Make sure this is the right {% if exam.is_ca %}CA{% else %}exam{% endif %} before you begin.</li>
             </ul>
-            <form method="post">
+            {% endif %}
+            {% if waiting_for_code %}
+            <div class="rounded-lg border bg-accent text-accent-foreground px-4 py-3 text-sm font-medium">
+                This {% if exam.is_ca %}CA{% else %}exam{% endif %} has not been opened yet. Wait for your teacher to give you the access code, then refresh this page.
+            </div>
+            {% else %}
+            <form method="post" class="space-y-3">
                 {% csrf_token %}
-                <button type="submit" class="btn-primary w-full py-3">Begin {{ exam.get_score_target_display }}</button>
+                <div>
+                    <label for="access_code">Access code</label>
+                    <input type="text" id="access_code" name="access_code" inputmode="numeric" pattern="[0-9]*" maxlength="6"
+                           autocomplete="off" required autofocus placeholder="Code from your teacher"
+                           class="text-center text-xl tracking-[0.4em] font-bold">
+                </div>
+                <button type="submit" class="btn-primary w-full py-3">{% if resuming %}Continue{% else %}Begin{% endif %} {{ exam.get_score_target_display }}</button>
             </form>
+            {% endif %}
         </div>
     </div>
 </section>

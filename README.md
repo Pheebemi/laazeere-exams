@@ -44,6 +44,13 @@ Everyone's access comes from the roster sync — nobody is added by hand:
 
 Every new account starts with its own ID/username as the password and is nudged to change it. Starter passwords use a deliberately fast hash (`core/hashers.py`) so a whole-school sync fits in one request; Django re-hashes to full strength on first login.
 
+## Exam security
+
+- **Access code**: issued by **management only**, from the **Access code** column on **All exams** (or the exam's own page) once the exam is published — **Generate code**, then **New code** if it leaks. Until then students can't start the exam. Teachers never see codes; management gives the code to the invigilator, who writes it on the board. Students enter it to begin, and again to continue on another device or after signing in again. Wrong codes are limited to 10 a minute per student.
+- **Shuffled order**: each student gets the questions, and each question's options, in their own order (seeded by their submission, so a refresh keeps it). Grading is by choice id, so order never affects marks.
+- **One device at a time**: a student logging in on a second phone/computer signs out the first one ("opened on another device").
+- **Scores hidden**: students only see "Submitted"; they get their result on the main portal when the school releases it.
+
 ## Creating an exam
 
 Teachers or management log into `/dashboard/`, click **+ New exam**, pick subject/class/academic year/term and which `Result` slot it fills (CA1/CA2/CA3 out of 10, Exam out of 70), then add questions (2–6 options each, one marked correct). Management's **Publish** stays disabled until the question marks add up exactly to the slot's total and every question has a single correct answer. Once any student has started an exam, its questions, subject, class and slot are locked (so grading can't change under them); only the timing can still be edited.

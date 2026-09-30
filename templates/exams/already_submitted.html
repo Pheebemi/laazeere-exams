@@ -8,9 +8,10 @@
     <h1 class="mt-4 text-2xl font-extrabold">{{ exam.get_score_target_display }} submitted</h1>
     <p class="mt-1 text-sm text-muted-foreground">{{ exam.subject }} &middot; {{ exam.get_term_display }}</p>
 
+    {# Scores are never shown to students here — they see their result on the main portal once the school releases it. #}
     <div class="card mt-6 p-6">
-        <p class="text-sm text-muted-foreground">Your score</p>
-        <p class="text-4xl font-extrabold text-primary mt-1">{{ submission.score|floatformat:"-2" }}<span class="text-xl text-muted-foreground font-semibold"> / {{ exam.total_marks }}</span></p>
+        <p class="font-semibold">Your answers have been received.</p>
+        <p class="text-sm text-muted-foreground mt-1">Your result will appear on the school portal when it is released.</p>
     </div>
 
     <a href="{% url 'exams:exam_list' %}" class="btn-outline mt-6">Back to exams</a>

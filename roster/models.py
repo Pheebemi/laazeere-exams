@@ -45,6 +45,9 @@ class SyncedStudent(models.Model):
     is_active = models.BooleanField(default=True)
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="syncedstudent")
     must_change_password = models.BooleanField(default=True)
+    # The one browser session allowed to use this account. Logging in anywhere
+    # else replaces it, which signs the older device out (exams.decorators).
+    current_session_key = models.CharField(max_length=40, blank=True, default="")
 
     def __str__(self):
         return f"{self.full_name} ({self.student_id})"
