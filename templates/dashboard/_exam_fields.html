@@ -5,11 +5,42 @@
 {% endif %}
 
 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-    {% include "includes/field.html" with field=form.subject %}
     {% include "includes/field.html" with field=form.klass %}
+    {% include "includes/field.html" with field=form.subject %}
     {% include "includes/field.html" with field=form.academic_year %}
     {% include "includes/field.html" with field=form.term %}
 </div>
+
+{{ form.picker_data|json_script:"exam-picker-data" }}
+<script>
+    // Pick the class first: the subject list then shows only what that class
+    // takes (a subject with no grades on the main portal is for every class),
+    // and the session follows the class. The server checks this too.
+    (function () {
+        var data = JSON.parse(document.getElementById("exam-picker-data").textContent);
+        var klass = document.getElementById("{{ form.klass.id_for_label }}");
+        var subject = document.getElementById("{{ form.subject.id_for_label }}");
+        var year = document.getElementById("{{ form.academic_year.id_for_label }}");
+        if (!klass || !subject || klass.disabled) return;
+        var allOptions = Array.prototype.slice.call(subject.options).map(function (o) { return o.cloneNode(true); });
+
+        function refresh() {
+            var info = data.classes[klass.value];
+            var keep = subject.value;
+            subject.innerHTML = "";
+            allOptions.forEach(function (option) {
+                var grades = data.subjects[option.value];
+                var offered = option.value === "" || (info && (!grades || grades.length === 0 || grades.indexOf(info.grade) !== -1));
+                if (offered) subject.appendChild(option.cloneNode(true));
+            });
+            subject.value = Array.prototype.some.call(subject.options, function (o) { return o.value === keep; }) ? keep : "";
+            subject.disabled = !info;
+            if (info && year && !year.disabled) year.value = String(info.year);
+        }
+        klass.addEventListener("change", refresh);
+        refresh();
+    })();
+</script>
 
 {% include "includes/field.html" with field=form.score_target %}
 

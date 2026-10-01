@@ -531,3 +531,34 @@ class AccessCodeTests(AuthoringTestBase):
             if self.exam.access_code != old:
                 break
         self.assertNotEqual(self.exam.access_code, old)
+
+
+class SubjectForClassTests(AuthoringTestBase):
+    """A new exam only accepts a subject the chosen class takes."""
+
+    def post_exam(self, subject):
+        now = timezone.localtime()
+        return self.client.post(reverse("dashboard:exam_create"), {
+            "klass": self.klass.id, "subject": subject.id, "academic_year": self.year.id,
+            "term": "first", "score_target": "ca1", "duration_minutes": 20,
+            "opens_at": now.strftime("%Y-%m-%dT%H:%M"),
+            "closes_at": (now + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M"),
+        })
+
+    def test_subject_not_taken_by_the_class_is_refused(self):
+        seniors_only = SyncedSubject.objects.create(raddai_id=50, name="Physics", grades=[10, 11, 12])
+        response = self.post_exam(seniors_only)
+        self.assertContains(response, "does not take Physics")
+        self.assertEqual(Exam.objects.count(), 1)
+
+    def test_subject_for_the_class_grade_or_for_every_class_is_accepted(self):
+        juniors = SyncedSubject.objects.create(raddai_id=51, name="Basic Science", grades=[7, 8, 9])
+        for subject in (juniors, self.subject):  # self.subject has no grades = every class
+            self.assertEqual(self.post_exam(subject).status_code, 302, subject.name)
+        self.assertEqual(Exam.objects.count(), 3)
+
+    def test_page_carries_the_class_and_subject_data(self):
+        SyncedSubject.objects.create(raddai_id=52, name="Physics", grades=[10, 11, 12])
+        response = self.client.get(reverse("dashboard:exam_create"))
+        self.assertContains(response, 'id="exam-picker-data"')
+        self.assertContains(response, "[10, 11, 12]")
