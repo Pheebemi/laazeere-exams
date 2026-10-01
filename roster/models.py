@@ -30,6 +30,12 @@ class SyncedSubject(models.Model):
     raddai_id = models.PositiveIntegerField(unique=True)
     name = models.CharField(max_length=100)
     code = models.CharField(max_length=20, blank=True, default="")
+    # Class grades that take this subject, as set on the main portal. Empty
+    # means every class (the main portal's rule).
+    grades = models.JSONField(default=list, blank=True)
+
+    def is_offered_to(self, klass):
+        return not self.grades or klass.grade in self.grades
 
     def __str__(self):
         return self.name

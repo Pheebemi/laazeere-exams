@@ -160,7 +160,7 @@ class Command(BaseCommand):
         created = updated = 0
         for row in rows:
             existing = SyncedSubject.objects.filter(raddai_id=row["id"]).first()
-            fields = {"name": row["name"], "code": row.get("code") or ""}
+            fields = {"name": row["name"], "code": row.get("code") or "", "grades": row.get("grades") or []}
             if existing:
                 changed = any(getattr(existing, k) != v for k, v in fields.items())
                 if changed:

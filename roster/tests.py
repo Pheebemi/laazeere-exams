@@ -14,7 +14,7 @@ def roster_payload(managers):
     return {
         "academic_years": [{"id": 1, "name": "2026/2027", "start_date": "2026-09-01", "end_date": "2027-07-31", "is_active": True}],
         "classes": [{"id": 1, "name": "JSS 1 A", "grade": 7, "section": "A", "academic_year_id": 1}],
-        "subjects": [{"id": 1, "name": "Mathematics", "code": "MTH"}],
+        "subjects": [{"id": 1, "name": "Mathematics", "code": "MTH", "grades": [7, 8, 9]}],
         "students": [{"id": 1, "student_id": "LAZ-JS-0001", "full_name": "Amina Bello", "current_class_id": 1, "is_active": True}],
         "staff": [],
         "managers": managers,
@@ -92,3 +92,10 @@ class SyncRosterTests(TestCase):
         self.assertIn("skip: New Teacher", output)
         self.assertEqual(SyncedStudent.objects.count(), 2)
         self.assertFalse(SyncedStaff.objects.exists())
+
+
+    def test_subject_grades_are_stored(self):
+        from roster.models import SyncedSubject
+
+        self.sync(roster_payload([]))
+        self.assertEqual(SyncedSubject.objects.get().grades, [7, 8, 9])

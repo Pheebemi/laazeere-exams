@@ -7,7 +7,7 @@ from django.core.files.base import ContentFile
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from exams.models import Exam
-from roster.models import SyncedAcademicYear, SyncedClass
+from roster.models import SyncedAcademicYear, SyncedClass, SyncedSubject
 
 MAX_CHOICES = 6
 DATETIME_FORMAT = "%Y-%m-%dT%H:%M"
@@ -39,7 +39,7 @@ class ExamForm(forms.ModelForm):
     class Meta:
         model = Exam
         fields = [
-            "subject", "klass", "academic_year", "term", "score_target",
+            "klass", "subject", "academic_year", "term", "score_target",
             "duration_minutes", "opens_at", "closes_at",
         ]
         labels = {
@@ -66,6 +66,7 @@ class ExamForm(forms.ModelForm):
         if active_year and not self.instance.pk:
             self.fields["academic_year"].initial = active_year
         self.fields["klass"].queryset = SyncedClass.objects.select_related("academic_year").order_by("grade", "section")
+        self.fields["subject"].queryset = SyncedSubject.objects.order_by("name")
         for name in ("opens_at", "closes_at"):
             self.fields[name].input_formats = [DATETIME_FORMAT]
         if locked:
@@ -80,7 +81,17 @@ class ExamForm(forms.ModelForm):
         klass, year = cleaned.get("klass"), cleaned.get("academic_year")
         if klass and year and klass.academic_year_id != year.id:
             self.add_error("klass", f"{klass} belongs to {klass.academic_year}, not {year}.")
+        subject = cleaned.get("subject")
+        if klass and subject and not subject.is_offered_to(klass):
+            self.add_error("subject", f"{klass} does not take {subject}.")
         return cleaned
+
+    def picker_data(self):
+        """What the page needs to show only the chosen class's subjects and fill in its session."""
+        return {
+            "classes": {str(c.pk): {"grade": c.grade, "year": c.academic_year_id} for c in self.fields["klass"].queryset},
+            "subjects": {str(s.pk): s.grades for s in self.fields["subject"].queryset},
+        }
 
 
 class QuestionForm(forms.Form):
