@@ -1,3 +1,4 @@
+import json
 import random
 import secrets
 
@@ -5,9 +6,10 @@ from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
-from django.http import Http404
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.views.decorators.http import require_POST
 from django_ratelimit.decorators import ratelimit
 
 from .decorators import student_required
@@ -15,6 +17,9 @@ from roster.models import SyncedStudent
 
 from .models import Answer, Exam, Submission
 from .services import grade_submission
+
+# An autosave only carries {question id: choice id} pairs; anything bigger is junk.
+MAX_AUTOSAVE_BYTES = 20_000
 
 # Exams this browser session has unlocked with the access code. Starting, and
 # continuing on a new device or after signing in again, both need the code.
@@ -188,15 +193,52 @@ def take_exam(request, exam_id):
     # Grading is by choice id, so the order never affects marks.
     questions = list(exam.questions.prefetch_related("choices"))
     random.Random(submission.pk).shuffle(questions)
+    saved = submission.draft_answers or {}
     for question in questions:
         question.shuffled_choices = list(question.choices.all())
         random.Random(f"{submission.pk}-{question.pk}").shuffle(question.shuffled_choices)
+        # Autosaved pick, so a reload or coming back after logging out restores it.
+        question.saved_choice_id = saved.get(str(question.pk))
 
     return render(
         request,
         "exams/take_exam.html",
-        {"exam": exam, "questions": questions, "deadline": deadline},
+        {"exam": exam, "questions": questions, "deadline": deadline, "draft_seq": submission.draft_seq},
     )
+
+
+@student_required
+@require_POST
+def save_answers(request, exam_id):
+    """
+    Autosave. After every tap the page sends all currently picked options;
+    this stores them with one small UPDATE (no grading, no answer rows). The
+    sequence number makes a slow, older save that arrives after a newer one
+    a no-op, so the newest picks always win.
+    """
+    student = request.user.syncedstudent
+    exam = _get_student_exam(exam_id, student)
+    if not _is_unlocked(request, exam):
+        return JsonResponse({"saved": False, "reason": "Enter the access code again."}, status=403)
+    if len(request.body) > MAX_AUTOSAVE_BYTES:
+        return JsonResponse({"saved": False, "reason": "Too large."}, status=413)
+    try:
+        payload = json.loads(request.body)
+        seq = int(payload["seq"])
+        answers = {str(int(question)): int(choice) for question, choice in payload["answers"].items()}
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return JsonResponse({"saved": False, "reason": "Bad request."}, status=400)
+
+    submission = Submission.objects.filter(student=student, exam=exam).select_related("exam").first()
+    if submission is None or submission.status != Submission.Status.IN_PROGRESS:
+        return JsonResponse({"saved": False, "reason": "Already submitted."}, status=409)
+    if timezone.now() >= _deadline(submission):
+        return JsonResponse({"saved": False, "reason": "Time is up."}, status=409)
+
+    Submission.objects.filter(
+        pk=submission.pk, status=Submission.Status.IN_PROGRESS, draft_seq__lt=seq
+    ).update(draft_answers=answers, draft_seq=seq)
+    return JsonResponse({"saved": True, "seq": seq})
 
 
 @student_required
@@ -230,12 +272,21 @@ def _finalize_submission(submission, post_data):
         if not updated:
             return  # lost the race — someone/something else already submitted this one
 
+        # The submitted form wins; anything it lacks (time ran out offline, a
+        # reload after the deadline, the auto_submit_expired command) comes from
+        # the latest autosave, so a student never loses what was saved.
+        draft = Submission.objects.filter(pk=submission.pk).values_list("draft_answers", flat=True).first() or {}
         answers = []
-        for question in submission.exam.questions.all():
-            choice_id = post_data.get(f"question_{question.id}")
-            answers.append(
-                Answer(submission=submission, question=question, selected_choice_id=choice_id or None)
-            )
+        for question in submission.exam.questions.prefetch_related("choices"):
+            raw = post_data.get(f"question_{question.id}") or draft.get(str(question.id))
+            try:
+                choice_id = int(raw)
+            except (TypeError, ValueError):
+                choice_id = None
+            # Only an option of *this* question counts — never another question's choice id.
+            if choice_id not in {choice.id for choice in question.choices.all()}:
+                choice_id = None
+            answers.append(Answer(submission=submission, question=question, selected_choice_id=choice_id))
         Answer.objects.bulk_create(answers)
 
     grade_submission(submission)
