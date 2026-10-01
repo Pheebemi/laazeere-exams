@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from unittest import mock
 
@@ -196,3 +197,67 @@ class ExamSecurityTests(StudentExamBase):
         listing = self.client.get(reverse("exams:exam_list"))
         self.assertContains(listing, "Submitted")
         self.assertNotContains(listing, "10/10")
+
+
+class AutosaveTests(StudentExamBase):
+    """Picks are saved on the server while writing, restored on return, and used if the final submit never arrives."""
+
+    def setUp(self):
+        super().setUp()
+        self.question = self.second_ca.questions.get()
+        self.wrong = self.question.choices.exclude(pk=self.correct.pk).get()
+        self.start()
+
+    def save(self, seq, answers, client=None):
+        return (client or self.client).post(
+            reverse("exams:save_answers", args=[self.second_ca.id]),
+            data=json.dumps({"seq": seq, "answers": answers}),
+            content_type="application/json",
+        )
+
+    def test_saved_pick_is_restored_after_logging_back_in(self):
+        self.assertEqual(self.save(1, {self.question.id: self.correct.id}).json(), {"saved": True, "seq": 1})
+        other = Client()
+        other.login(username="STU1", password="pw")
+        self.start(client=other)
+        questions = other.get(reverse("exams:take_exam", args=[self.second_ca.id])).context["questions"]
+        self.assertEqual(questions[0].saved_choice_id, self.correct.id)
+
+    def test_an_older_save_arriving_late_does_not_overwrite_a_newer_one(self):
+        self.save(2, {self.question.id: self.correct.id})
+        self.save(1, {self.question.id: self.wrong.id})
+        self.assertEqual(Submission.objects.get().draft_answers, {str(self.question.id): self.correct.id})
+
+    def test_time_running_out_uses_the_saved_answers(self):
+        self.save(1, {self.question.id: self.correct.id})
+        Submission.objects.update(started_at=timezone.now() - timedelta(hours=2))
+        self.client.get(reverse("exams:take_exam", args=[self.second_ca.id]))  # reload after the deadline
+        submission = Submission.objects.get()
+        self.assertEqual((submission.status, submission.score), (Submission.Status.SUBMITTED, 10))
+
+    def test_final_submit_wins_over_the_autosave(self):
+        self.save(1, {self.question.id: self.correct.id})
+        self.client.post(reverse("exams:submit_exam", args=[self.second_ca.id]), {f"question_{self.question.id}": self.wrong.id})
+        self.assertEqual(Submission.objects.get().score, 0)
+
+    def test_an_option_from_another_question_never_counts(self):
+        other_question = Question.objects.create(exam=self.second_ca, text="Other", marks=5)
+        other_right = Choice.objects.create(question=other_question, text="yes", is_correct=True)
+        self.client.post(
+            reverse("exams:submit_exam", args=[self.second_ca.id]), {f"question_{self.question.id}": other_right.id}
+        )
+        self.assertEqual(Submission.objects.get().score, 0)
+        self.assertIsNone(Answer.objects.get(question=self.question).selected_choice_id)
+
+    def test_save_is_refused_once_submitted_or_without_the_code(self):
+        self.client.post(reverse("exams:submit_exam", args=[self.second_ca.id]), {})
+        self.assertEqual(self.save(1, {}).status_code, 409)
+        other = Client()
+        other.login(username="STU1", password="pw")
+        self.assertEqual(self.save(2, {}, client=other).status_code, 403)
+
+    def test_junk_is_rejected(self):
+        response = self.client.post(
+            reverse("exams:save_answers", args=[self.second_ca.id]), data="not json", content_type="application/json"
+        )
+        self.assertEqual(response.status_code, 400)

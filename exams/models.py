@@ -169,6 +169,12 @@ class Submission(models.Model):
     # everything else so a few bad rows can't block the rest.
     push_error = models.TextField(blank=True, default="")
     push_failed_at = models.DateTimeField(null=True, blank=True)
+    # Autosave while writing: {"<question id>": <choice id>}. Restored on
+    # reload/re-login, and used when the script is closed without a final
+    # submit (time ran out offline). draft_seq rejects saves that arrive late
+    # and out of order.
+    draft_answers = models.JSONField(default=dict, blank=True)
+    draft_seq = models.PositiveBigIntegerField(default=0)
 
     class Meta:
         unique_together = ["student", "exam"]
