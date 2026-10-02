@@ -185,18 +185,14 @@ class ExamSecurityTests(StudentExamBase):
         self.assertContains(response, "opened on another device")
         self.assertEqual(second.get(reverse("exams:exam_list")).status_code, 200)
 
-    def test_students_never_see_their_score(self):
+    def test_students_see_their_score_right_after_submitting(self):
         self.start()
         question = self.second_ca.questions.get()
         response = self.client.post(
             reverse("exams:submit_exam", args=[self.second_ca.id]), {f"question_{question.id}": self.correct.id}, follow=True
         )
-        self.assertEqual(Submission.objects.get().score, 10)
-        self.assertContains(response, "Your answers have been received")
-        self.assertNotContains(response, "Your score")
-        listing = self.client.get(reverse("exams:exam_list"))
-        self.assertContains(listing, "Submitted")
-        self.assertNotContains(listing, "10/10")
+        self.assertContains(response, "Your score")
+        self.assertContains(self.client.get(reverse("exams:exam_list")), "10/10")
 
 
 class AutosaveTests(StudentExamBase):

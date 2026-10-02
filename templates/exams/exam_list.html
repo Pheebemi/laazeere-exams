@@ -24,7 +24,7 @@
             <div class="shrink-0">
                 {% if row.state == "submitted" %}
                     <a href="{% url 'exams:already_submitted' exam.id %}" class="inline-flex items-center rounded-full bg-secondary text-secondary-foreground px-3 py-1.5 text-sm font-semibold">
-                        &#10003; Submitted
+                        Done &middot; {{ row.submission.score|floatformat:"-2" }}/{{ exam.total_marks }}
                     </a>
                 {% elif row.state == "in_progress" %}
                     <a href="{% url 'exams:start_exam' exam.id %}" class="btn-primary">Continue</a>
