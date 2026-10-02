@@ -49,7 +49,7 @@
             {% for exam in exams %}
             <tr class="hover:bg-muted/50">
                 <td class="px-4 py-3 font-medium"><a href="{% url 'dashboard:exam_edit' exam.id %}" class="text-primary hover:underline">{{ exam.subject }}</a></td>
-                <td class="px-4 py-3 whitespace-nowrap">{{ exam.klass }}</td>
+                <td class="px-4 py-3 min-w-32">{{ exam.class_names }}</td>
                 <td class="px-4 py-3 whitespace-nowrap">{{ exam.get_score_target_display }}</td>
                 <td class="px-4 py-3 text-muted-foreground whitespace-nowrap">{{ exam.opens_at|date:"M j, g:i A" }}</td>
                 {% if dashboard_is_manager %}<td class="px-4 py-3 text-muted-foreground">{{ exam.author_name|default:"—" }}</td>{% endif %}

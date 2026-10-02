@@ -30,7 +30,7 @@
             {% for exam in exams %}
             <tr class="hover:bg-muted/50">
                 <td class="px-4 py-3 font-medium"><a href="{% url 'dashboard:exam_results' exam.id %}" class="text-primary hover:underline">{{ exam.subject }}</a></td>
-                <td class="px-4 py-3 whitespace-nowrap">{{ exam.klass }}</td>
+                <td class="px-4 py-3 min-w-32">{{ exam.class_names }}</td>
                 <td class="px-4 py-3 whitespace-nowrap">{{ exam.get_score_target_display }}</td>
                 <td class="px-4 py-3 whitespace-nowrap">{{ exam.get_term_display }}</td>
                 <td class="px-4 py-3">{{ exam.submitted }}</td>

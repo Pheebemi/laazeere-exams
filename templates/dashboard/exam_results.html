@@ -8,7 +8,7 @@
             <h1 class="text-2xl font-extrabold">{{ exam.subject }}</h1>
             {% include "dashboard/_status_badge.html" %}
         </div>
-        <p class="text-sm text-muted-foreground">{{ exam.klass }} &middot; {{ exam.get_score_target_display }} &middot; {{ exam.get_term_display }} &middot; {{ exam.total_marks }} marks</p>
+        <p class="text-sm text-muted-foreground">{{ exam.class_names }} &middot; {{ exam.get_score_target_display }} &middot; {{ exam.get_term_display }} &middot; {{ exam.total_marks }} marks</p>
     </div>
     <a href="{% url 'dashboard:exam_edit' exam.id %}" class="btn-outline">View questions</a>
 </div>
@@ -16,7 +16,7 @@
 {% if dashboard_is_manager and exam.is_published %}{% include "dashboard/_access_code.html" %}{% endif %}
 
 <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-    {% include "dashboard/_stat.html" with label="Students in class" value=class_size %}
+    {% include "dashboard/_stat.html" with label=many_classes|yesno:"Students in these classes,Students in class" value=class_size %}
     {% include "dashboard/_stat.html" with label="Writing now" value=in_progress_count %}
     {% include "dashboard/_stat.html" with label="Submitted" value=submitted_count highlight=True %}
     {% include "dashboard/_stat.html" with label="Not yet on main portal" value=unpushed_count %}
@@ -46,6 +46,7 @@
             <tr>
                 <th class="px-4 py-3 font-semibold">Student</th>
                 <th class="px-4 py-3 font-semibold">ID</th>
+                {% if many_classes %}<th class="px-4 py-3 font-semibold">Class</th>{% endif %}
                 <th class="px-4 py-3 font-semibold">Status</th>
                 <th class="px-4 py-3 font-semibold">Score</th>
                 <th class="px-4 py-3 font-semibold">Main portal</th>
@@ -56,6 +57,7 @@
             <tr>
                 <td class="px-4 py-3 font-medium">{{ submission.student.full_name }}</td>
                 <td class="px-4 py-3 text-muted-foreground whitespace-nowrap">{{ submission.student.student_id }}</td>
+                {% if many_classes %}<td class="px-4 py-3 whitespace-nowrap">{{ submission.student.current_class|default:"—" }}</td>{% endif %}
                 <td class="px-4 py-3">{% if submission.status == "submitted" %}Submitted{% else %}<span class="text-accent-foreground font-semibold">Writing…</span>{% endif %}</td>
                 <td class="px-4 py-3 font-semibold">{% if submission.status == "submitted" %}{{ submission.score|floatformat:"-2" }} / {{ exam.total_marks }}{% else %}—{% endif %}</td>
                 <td class="px-4 py-3">
@@ -68,7 +70,7 @@
                 </td>
             </tr>
             {% empty %}
-            <tr><td colspan="5" class="px-4 py-10 text-center text-muted-foreground">No student has started this exam yet.</td></tr>
+            <tr><td colspan="{% if many_classes %}6{% else %}5{% endif %}" class="px-4 py-10 text-center text-muted-foreground">No student has started this exam yet.</td></tr>
             {% endfor %}
         </tbody>
     </table>

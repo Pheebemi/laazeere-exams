@@ -56,6 +56,8 @@ Every new account starts with its own ID/username as the password and is nudged 
 
 Teachers or management log into `/dashboard/`, click **+ New exam**, pick subject/class/academic year/term and which `Result` slot it fills (CA1/CA2/CA3 out of 10, Exam out of 70), then add questions (2–6 options each, one marked correct). Management's **Publish** stays disabled until the question marks add up exactly to the slot's total and every question has a single correct answer. Once any student has started an exam, its questions, subject, class and slot are locked (so grading can't change under them); only the timing can still be edited.
 
+An exam can be set for **several classes** at once (e.g. JSS1 A and JSS1 B): they share the questions, the access code and one results page. Only subjects every ticked class takes can be picked.
+
 A question is either **multiple choice** or **fill in the blank**. For a blank, the teacher lists one or more accepted answers (one per line) and it's marked automatically: capital letters, extra spaces and end punctuation are ignored, but spelling must match.
 
 A question can carry one optional **picture** (diagram, map, shape…). Big phone photos are shrunk in the browser before upload (Vercel refuses request bodies over ~4.5 MB), then the server re-encodes every picture as a WebP of at most 1600 px (typically 100–200 KB) so a whole class loads it quickly. Pictures live in Vercel Blob and students load them straight from its CDN. Replacing or removing a picture, or deleting its question or exam, deletes the old file from Blob.

@@ -44,7 +44,12 @@ class Exam(models.Model):
     }
 
     subject = models.ForeignKey(SyncedSubject, on_delete=models.CASCADE, related_name="exams")
-    klass = models.ForeignKey(SyncedClass, on_delete=models.CASCADE, related_name="exams")
+    # Every class that sits this exam: one set of questions, one access code,
+    # one results page.
+    classes = models.ManyToManyField(SyncedClass, related_name="exams")
+    # Old single-class field, kept (set to the first class) only so a deploy
+    # still running the previous code keeps working. Read `classes` instead.
+    klass = models.ForeignKey(SyncedClass, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     academic_year = models.ForeignKey(SyncedAcademicYear, on_delete=models.CASCADE, related_name="exams")
     term = models.CharField(max_length=10, choices=Term.choices)
     score_target = models.CharField(max_length=10, choices=ScoreTarget.choices)
@@ -76,6 +81,15 @@ class Exam(models.Model):
             if profile is not None:
                 return profile.full_name
         return user.username
+
+    @property
+    def class_list(self):
+        """Classes in grade/section order; uses prefetch_related("classes") when present."""
+        return sorted(self.classes.all(), key=lambda c: (c.grade, c.section, c.name))
+
+    @property
+    def class_names(self):
+        return ", ".join(str(c) for c in self.class_list)
 
     @property
     def raddai_score_field(self):
@@ -119,12 +133,14 @@ class Exam(models.Model):
                 problems.append(f"Question {i} needs at least 2 options.")
             if sum(1 for c in choices if c.is_correct) != 1:
                 problems.append(f"Question {i} must have exactly one correct answer.")
+        if self.pk and not self.classes.exists():
+            problems.append("Pick at least one class.")
         if self.closes_at <= self.opens_at:
             problems.append("Closing time must be after opening time.")
         return problems
 
     def __str__(self):
-        return f"{self.subject} - {self.klass} - {self.get_score_target_display()}"
+        return f"{self.subject} - {self.class_names} - {self.get_score_target_display()}"
 
 
 def normalize_answer(text):

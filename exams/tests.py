@@ -26,8 +26,10 @@ class StudentExamBase(TestCase):
         now = timezone.now()
         window = {"opens_at": now - timedelta(hours=1), "closes_at": now + timedelta(hours=1)}
         common = {"subject": maths, "academic_year": year, "term": "first", "is_published": True, **window}
-        self.second_ca = Exam.objects.create(klass=self.jss1a, score_target="ca2", access_code="482731", **common)
-        self.other_class_exam = Exam.objects.create(klass=self.jss1b, score_target="exam", **common)
+        self.second_ca = Exam.objects.create(score_target="ca2", access_code="482731", **common)
+        self.second_ca.classes.add(self.jss1a)
+        self.other_class_exam = Exam.objects.create(score_target="exam", **common)
+        self.other_class_exam.classes.add(self.jss1b)
 
         question = Question.objects.create(exam=self.second_ca, text="2+2?", marks=10)
         Choice.objects.create(question=question, text="3")
@@ -303,3 +305,35 @@ class FillInTheBlankTests(StudentExamBase):
     def test_publishing_needs_a_correct_answer(self):
         Question.objects.filter(pk=self.blank.pk).update(accepted_answers=[])
         self.assertIn("Question 1 needs at least one correct answer.", self.second_ca.publish_problems())
+
+
+class MultiClassStudentTests(StudentExamBase):
+    def setUp(self):
+        super().setUp()
+        self.second_ca.classes.add(self.jss1b)
+        jss2 = SyncedClass.objects.create(raddai_id=3, name="JSS2 A", grade=8, section="A", academic_year=self.jss1a.academic_year)
+        self.users = {}
+        for raddai_id, username, klass in ((2, "STU2", self.jss1b), (3, "STU3", jss2), (4, "STU4", None)):
+            user = User.objects.create_user(username=username, password="pw")
+            SyncedStudent.objects.create(raddai_id=raddai_id, student_id=username, full_name=username, current_class=klass, user=user)
+            client = Client()
+            client.login(username=username, password="pw")
+            self.users[username] = client
+
+    def test_every_picked_class_sees_and_writes_it(self):
+        for client in (self.client, self.users["STU2"]):
+            listing = client.get(reverse("exams:exam_list"))
+            self.assertIn(self.second_ca, [r["exam"] for r in listing.context["rows"]])
+            self.assertRedirects(self.start(client), reverse("exams:take_exam", args=[self.second_ca.id]))
+        self.assertEqual(Submission.objects.filter(exam=self.second_ca).count(), 2)
+
+    def test_start_page_shows_the_students_own_class(self):
+        response = self.users["STU2"].get(reverse("exams:start_exam", args=[self.second_ca.id]))
+        self.assertContains(response, "JSS1 B")
+        self.assertNotContains(response, "JSS1 A")
+
+    def test_other_class_and_no_class_cannot_see_it(self):
+        for username in ("STU3", "STU4"):
+            client = self.users[username]
+            self.assertEqual(client.get(reverse("exams:exam_list")).context["rows"], [], username)
+            self.assertEqual(client.get(reverse("exams:start_exam", args=[self.second_ca.id])).status_code, 404, username)

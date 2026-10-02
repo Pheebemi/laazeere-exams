@@ -10,7 +10,7 @@
                     <h1 class="text-2xl font-extrabold">{{ exam.subject }}</h1>
                     {% include "dashboard/_status_badge.html" %}
                 </div>
-                <p class="text-sm text-muted-foreground">{{ exam.klass }} &middot; {{ exam.get_score_target_display }} &middot; {{ exam.get_term_display }} &middot; {{ exam.total_marks }} marks{% if exam.author_name %} &middot; set by {{ exam.author_name }}{% endif %}</p>
+                <p class="text-sm text-muted-foreground">{{ exam.class_names }} &middot; {{ exam.get_score_target_display }} &middot; {{ exam.get_term_display }} &middot; {{ exam.total_marks }} marks{% if exam.author_name %} &middot; set by {{ exam.author_name }}{% endif %}</p>
             </div>
             <div class="flex gap-2">
                 <a href="{% url 'dashboard:exam_results' exam.id %}" class="btn-outline">Results</a>

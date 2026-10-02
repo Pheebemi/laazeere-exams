@@ -35,37 +35,48 @@ def shrink_image(upload):
     return ContentFile(buffer.getvalue(), name=f"{uuid4().hex}.webp")
 
 
+def _names(classes):
+    return ", ".join(str(c) for c in classes)
+
+
 class ExamForm(forms.ModelForm):
     class Meta:
         model = Exam
         fields = [
-            "klass", "subject", "academic_year", "term", "score_target",
+            "classes", "subject", "academic_year", "term", "score_target",
             "duration_minutes", "opens_at", "closes_at",
         ]
         labels = {
-            "klass": "Class",
+            "classes": "Classes",
             "score_target": "Result slot",
             "duration_minutes": "Duration (minutes)",
             "opens_at": "Opens at",
             "closes_at": "Closes at",
         }
         help_texts = {
+            "classes": "Tick every class that writes this. They all get the same questions and access code.",
             "score_target": "Which score on the main portal this test fills: First/Second/Third CA are out of 10, Examination is out of 70.",
         }
         widgets = {
             "opens_at": forms.DateTimeInput(attrs={"type": "datetime-local"}, format=DATETIME_FORMAT),
             "closes_at": forms.DateTimeInput(attrs={"type": "datetime-local"}, format=DATETIME_FORMAT),
+            "classes": forms.CheckboxSelectMultiple,
+        }
+        error_messages = {
+            "classes": {"required": "Pick at least one class."},
         }
 
     # Fields that change what the grade means — frozen once any student has started.
-    LOCKED_FIELDS = ["subject", "klass", "academic_year", "term", "score_target"]
+    LOCKED_FIELDS = ["subject", "classes", "academic_year", "term", "score_target"]
 
     def __init__(self, *args, locked=False, **kwargs):
         super().__init__(*args, **kwargs)
         active_year = SyncedAcademicYear.objects.filter(is_active=True).first()
         if active_year and not self.instance.pk:
             self.fields["academic_year"].initial = active_year
-        self.fields["klass"].queryset = SyncedClass.objects.select_related("academic_year").order_by("grade", "section")
+        self.fields["classes"].queryset = SyncedClass.objects.select_related("academic_year").order_by(
+            "grade", "section", "name"
+        )
         self.fields["subject"].queryset = SyncedSubject.objects.order_by("name")
         for name in ("opens_at", "closes_at"):
             self.fields[name].input_formats = [DATETIME_FORMAT]
@@ -78,18 +89,32 @@ class ExamForm(forms.ModelForm):
         opens_at, closes_at = cleaned.get("opens_at"), cleaned.get("closes_at")
         if opens_at and closes_at and closes_at <= opens_at:
             self.add_error("closes_at", "Closing time must be after opening time.")
-        klass, year = cleaned.get("klass"), cleaned.get("academic_year")
-        if klass and year and klass.academic_year_id != year.id:
-            self.add_error("klass", f"{klass} belongs to {klass.academic_year}, not {year}.")
+        classes, year = list(cleaned.get("classes") or []), cleaned.get("academic_year")
+        if year:
+            wrong_year = [c for c in classes if c.academic_year_id != year.id]
+            if wrong_year:
+                self.add_error("classes", f"{_names(wrong_year)} {'is' if len(wrong_year) == 1 else 'are'} not in {year}.")
         subject = cleaned.get("subject")
-        if klass and subject and not subject.is_offered_to(klass):
-            self.add_error("subject", f"{klass} does not take {subject}.")
+        if subject:
+            not_taking = [c for c in classes if not subject.is_offered_to(c)]
+            if not_taking:
+                self.add_error("subject", f"{_names(not_taking)} {'does' if len(not_taking) == 1 else 'do'} not take {subject}.")
         return cleaned
 
+    def save(self, commit=True):
+        exam = super().save(commit=False)
+        classes = list(self.cleaned_data["classes"])
+        # Old single-class column: the first class, for a deploy still on the previous code.
+        exam.klass = classes[0] if classes else None
+        if commit:
+            exam.save()
+            self.save_m2m()
+        return exam
+
     def picker_data(self):
-        """What the page needs to show only the chosen class's subjects and fill in its session."""
+        """What the page needs to show only subjects every ticked class takes, and fill in their session."""
         return {
-            "classes": {str(c.pk): {"grade": c.grade, "year": c.academic_year_id} for c in self.fields["klass"].queryset},
+            "classes": {str(c.pk): {"grade": c.grade, "year": c.academic_year_id} for c in self.fields["classes"].queryset},
             "subjects": {str(s.pk): s.grades for s in self.fields["subject"].queryset},
         }
 

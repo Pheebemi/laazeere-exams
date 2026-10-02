@@ -39,14 +39,16 @@ def _deadline(submission):
     return min(exam.closes_at, submission.started_at + timezone.timedelta(minutes=exam.duration_minutes))
 
 
+def _class_exams(student):
+    """Exams the student's class sits. A student with no class sits none (classes=None would mean "no classes")."""
+    if student.current_class_id is None:
+        return Exam.objects.none()
+    return Exam.objects.filter(classes=student.current_class_id)
+
+
 def _get_student_exam(exam_id, student, require_published=True):
-    """
-    Fetch the Exam for this student's class, scoped to their class. Not
-    get_object_or_404(Exam, klass=...) — Django's get_object_or_404() itself
-    takes a positional parameter literally named `klass` for the model, which
-    collides with our Exam.klass field name if passed as a keyword.
-    """
-    qs = Exam.objects.filter(pk=exam_id, klass=student.current_class)
+    """Fetch the Exam only if the student's class is one of the classes sitting it."""
+    qs = _class_exams(student).filter(pk=exam_id)
     if require_published:
         qs = qs.filter(is_published=True)
     exam = qs.first()
@@ -91,7 +93,7 @@ def exam_list(request):
     student = request.user.syncedstudent
     now = timezone.now()
     exams = (
-        Exam.objects.filter(klass=student.current_class, is_published=True)
+        _class_exams(student).filter(is_published=True)
         .select_related("subject")
         .order_by("opens_at")
     )

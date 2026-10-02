@@ -21,7 +21,7 @@
         <li class="flex items-center justify-between gap-4 px-5 py-3">
             <div class="min-w-0">
                 <a href="{% url 'dashboard:exam_edit' exam.id %}" class="font-semibold hover:text-primary">{{ exam.subject }}</a>
-                <p class="text-sm text-muted-foreground">{{ exam.klass }} &middot; {{ exam.get_score_target_display }} &middot; opens {{ exam.opens_at|date:"M j, g:i A" }}</p>
+                <p class="text-sm text-muted-foreground">{{ exam.class_names }} &middot; {{ exam.get_score_target_display }} &middot; opens {{ exam.opens_at|date:"M j, g:i A" }}</p>
             </div>
             {% include "dashboard/_status_badge.html" %}
         </li>
