@@ -35,10 +35,11 @@ class AuthoringTestBase(TestCase):
 
         now = timezone.now()
         self.exam = Exam.objects.create(
-            subject=self.subject, klass=self.klass, academic_year=self.year, term="first",
+            subject=self.subject, academic_year=self.year, term="first",
             score_target="ca1", opens_at=now - timedelta(hours=1), closes_at=now + timedelta(hours=2),
             created_by=self.teacher,
         )
+        self.exam.classes.add(self.klass)
 
     def login_as_manager(self):
         manager = User.objects.create_user(username="bursar", password="pw")
@@ -65,7 +66,7 @@ class ExamCreateTests(AuthoringTestBase):
     def test_create_sets_total_marks_from_slot(self):
         now = timezone.localtime()
         response = self.client.post(reverse("dashboard:exam_create"), {
-            "subject": self.subject.id, "klass": self.klass.id, "academic_year": self.year.id,
+            "subject": self.subject.id, "classes": [self.klass.id], "academic_year": self.year.id,
             "term": "first", "score_target": "exam", "duration_minutes": 40,
             "opens_at": now.strftime("%Y-%m-%dT%H:%M"),
             "closes_at": (now + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M"),
@@ -79,7 +80,7 @@ class ExamCreateTests(AuthoringTestBase):
     def test_rejects_closing_before_opening(self):
         now = timezone.localtime()
         response = self.client.post(reverse("dashboard:exam_create"), {
-            "subject": self.subject.id, "klass": self.klass.id, "academic_year": self.year.id,
+            "subject": self.subject.id, "classes": [self.klass.id], "academic_year": self.year.id,
             "term": "first", "score_target": "ca1", "duration_minutes": 20,
             "opens_at": now.strftime("%Y-%m-%dT%H:%M"),
             "closes_at": (now - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M"),
@@ -160,7 +161,7 @@ class LockTests(AuthoringTestBase):
     def test_cannot_change_result_slot_but_can_extend_deadline(self):
         new_close = timezone.localtime(self.exam.closes_at + timedelta(days=1))
         self.client.post(reverse("dashboard:exam_edit", args=[self.exam.id]), {
-            "subject": self.subject.id, "klass": self.klass.id, "academic_year": self.year.id,
+            "subject": self.subject.id, "classes": [self.klass.id], "academic_year": self.year.id,
             "term": "second", "score_target": "exam", "duration_minutes": 30,
             "opens_at": timezone.localtime(self.exam.opens_at).strftime("%Y-%m-%dT%H:%M"),
             "closes_at": new_close.strftime("%Y-%m-%dT%H:%M"),
@@ -441,13 +442,15 @@ class ClearAnswersTests(AuthoringTestBase):
 
         self.first_term = self.exam  # first term, closed below
         self.second_term = Exam.objects.create(
-            subject=self.subject, klass=self.klass, academic_year=self.year, term="second", score_target="ca1",
+            subject=self.subject, academic_year=self.year, term="second", score_target="ca1",
             opens_at=now - timedelta(days=3), closes_at=now - timedelta(days=2),
         )
         self.still_open = Exam.objects.create(
-            subject=self.subject, klass=self.klass, academic_year=self.year, term="first", score_target="ca2",
+            subject=self.subject, academic_year=self.year, term="first", score_target="ca2",
             opens_at=now - timedelta(hours=1), closes_at=now + timedelta(hours=1),
         )
+        self.second_term.classes.add(self.klass)
+        self.still_open.classes.add(self.klass)
         Exam.objects.filter(pk=self.first_term.pk).update(
             opens_at=now - timedelta(days=3), closes_at=now - timedelta(days=2)
         )
@@ -539,7 +542,7 @@ class SubjectForClassTests(AuthoringTestBase):
     def post_exam(self, subject):
         now = timezone.localtime()
         return self.client.post(reverse("dashboard:exam_create"), {
-            "klass": self.klass.id, "subject": subject.id, "academic_year": self.year.id,
+            "classes": [self.klass.id], "subject": subject.id, "academic_year": self.year.id,
             "term": "first", "score_target": "ca1", "duration_minutes": 20,
             "opens_at": now.strftime("%Y-%m-%dT%H:%M"),
             "closes_at": (now + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M"),
@@ -592,3 +595,89 @@ class BlankQuestionAuthoringTests(AuthoringTestBase):
         self.client.post(edit, {"kind": "mcq", "text": "Pick", "marks": 10, "correct": 1, "choice_1": "X", "choice_2": "Y"})
         question.refresh_from_db()
         self.assertEqual((question.kind, question.accepted_answers, question.choices.count()), ("mcq", [], 2))
+
+
+class MultiClassExamTests(AuthoringTestBase):
+    """One exam can be sat by several classes: same questions, code and results page."""
+
+    def setUp(self):
+        super().setUp()
+        self.jss1b = SyncedClass.objects.create(raddai_id=2, name="JSS1 B", grade=7, section="B", academic_year=self.year)
+
+    def post_exam(self, classes, subject=None, url=None, year=None):
+        now = timezone.localtime()
+        return self.client.post(url or reverse("dashboard:exam_create"), {
+            "classes": [c.id for c in classes], "subject": (subject or self.subject).id,
+            "academic_year": (year or self.year).id, "term": "first", "score_target": "ca1", "duration_minutes": 20,
+            "opens_at": now.strftime("%Y-%m-%dT%H:%M"),
+            "closes_at": (now + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M"),
+        })
+
+    def test_create_for_two_classes(self):
+        response = self.post_exam([self.jss1b, self.klass])
+        exam = Exam.objects.exclude(pk=self.exam.pk).get()
+        self.assertRedirects(response, reverse("dashboard:exam_edit", args=[exam.id]))
+        self.assertEqual(set(exam.classes.all()), {self.klass, self.jss1b})
+        self.assertEqual(exam.class_names, "JSS1 A, JSS1 B")
+        self.assertIn(exam.klass, (self.klass, self.jss1b))  # old column still filled for the previous code
+
+    def test_needs_at_least_one_class(self):
+        response = self.post_exam([])
+        self.assertContains(response, "Pick at least one class.")
+        self.assertEqual(Exam.objects.count(), 1)
+
+    def test_subject_must_be_taken_by_every_class(self):
+        ss1 = SyncedClass.objects.create(raddai_id=3, name="SS1 A", grade=10, section="A", academic_year=self.year)
+        juniors = SyncedSubject.objects.create(raddai_id=60, name="Basic Science", grades=[7, 8, 9])
+        response = self.post_exam([self.klass, ss1], subject=juniors)
+        self.assertContains(response, "SS1 A does not take Basic Science")
+        self.assertEqual(Exam.objects.count(), 1)
+
+    def test_classes_must_be_in_the_chosen_session(self):
+        old_year = SyncedAcademicYear.objects.create(
+            raddai_id=2, name="2024/2025", start_date="2024-09-01", end_date="2025-07-31"
+        )
+        old_class = SyncedClass.objects.create(raddai_id=4, name="JSS1 C", grade=7, section="C", academic_year=old_year)
+        response = self.post_exam([self.klass, old_class])
+        self.assertContains(response, "JSS1 C is not in 2025/2026")
+        self.assertEqual(Exam.objects.count(), 1)
+
+    def test_edit_adds_a_class(self):
+        response = self.post_exam([self.klass, self.jss1b], url=reverse("dashboard:exam_edit", args=[self.exam.id]))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(set(self.exam.classes.all()), {self.klass, self.jss1b})
+
+    def test_classes_locked_once_a_student_started(self):
+        self.start_submission()
+        self.post_exam([self.klass, self.jss1b], url=reverse("dashboard:exam_edit", args=[self.exam.id]))
+        self.assertEqual(list(self.exam.classes.all()), [self.klass])
+
+    def test_lists_filter_and_results_show_every_class(self):
+        self.exam.classes.add(self.jss1b)
+        student = self.start_submission()  # JSS1 A
+        other = User.objects.create_user(username="STU2", password="pw")
+        SyncedStudent.objects.create(raddai_id=2, student_id="STU2", full_name="Bola", current_class=self.jss1b, user=other)
+
+        listing = self.client.get(reverse("dashboard:exam_list"), {"class": self.jss1b.id})
+        self.assertEqual(list(listing.context["exams"]), [self.exam])
+        self.assertContains(listing, "JSS1 A, JSS1 B")
+
+        results = self.client.get(reverse("dashboard:exam_results", args=[self.exam.id]))
+        self.assertEqual(results.context["class_size"], 2)
+        self.assertContains(results, "Students in these classes")
+        self.assertContains(results, f"<td class=\"px-4 py-3 whitespace-nowrap\">{student.student.current_class}</td>", html=False)
+
+    def test_publish_needs_a_class(self):
+        self.exam.classes.clear()
+        self.assertIn("Pick at least one class.", self.exam.publish_problems())
+
+    def test_old_single_class_exams_get_their_class(self):
+        from exams.apps import link_single_class_exams
+
+        legacy = Exam.objects.create(
+            subject=self.subject, klass=self.jss1b, academic_year=self.year, term="first", score_target="ca2",
+            opens_at=timezone.now(), closes_at=timezone.now() + timedelta(hours=1),
+        )
+        link_single_class_exams(sender=None)
+        self.assertEqual(list(legacy.classes.all()), [self.jss1b])
+        self.assertEqual(list(self.exam.classes.all()), [self.klass])  # exams that already have classes are untouched

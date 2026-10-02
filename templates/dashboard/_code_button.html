@@ -1,5 +1,5 @@
 <form method="post" action="{% url 'dashboard:exam_generate_code' exam.id %}"
-      {% if exam.access_code %}onsubmit="return confirm('Make a new access code for {{ exam.subject|escapejs }} ({{ exam.klass|escapejs }})? The current code will stop working for anyone who has not started yet.');"{% endif %}>
+      {% if exam.access_code %}onsubmit="return confirm('Make a new access code for {{ exam.subject|escapejs }} ({{ exam.class_names|escapejs }})? The current code will stop working for anyone who has not started yet.');"{% endif %}>
     {% csrf_token %}
     <input type="hidden" name="next" value="{{ request.get_full_path }}">
     <button type="submit" class="{% if exam.access_code %}btn-outline py-1.5{% else %}btn-primary py-1.5{% endif %} whitespace-nowrap">

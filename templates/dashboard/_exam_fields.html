@@ -4,8 +4,22 @@
 </div>
 {% endif %}
 
-<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-    {% include "includes/field.html" with field=form.klass %}
+<fieldset data-class-picker>
+    <legend class="text-sm font-semibold">{{ form.classes.label }}</legend>
+    <p class="field-help">{{ form.classes.help_text }}</p>
+    <div class="mt-2 flex flex-wrap gap-2">
+        {% for box in form.classes %}
+        <label for="{{ box.id_for_label }}" class="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium cursor-pointer has-checked:border-primary has-checked:bg-secondary has-disabled:cursor-not-allowed has-disabled:opacity-60">
+            {{ box.tag }} {{ box.choice_label }}
+        </label>
+        {% empty %}
+        <p class="text-sm text-muted-foreground">No classes yet &mdash; sync the roster first.</p>
+        {% endfor %}
+    </div>
+    {% for error in form.classes.errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+</fieldset>
+
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
     {% include "includes/field.html" with field=form.subject %}
     {% include "includes/field.html" with field=form.academic_year %}
     {% include "includes/field.html" with field=form.term %}
@@ -13,31 +27,37 @@
 
 {{ form.picker_data|json_script:"exam-picker-data" }}
 <script>
-    // Pick the class first: the subject list then shows only what that class
-    // takes (a subject with no grades on the main portal is for every class),
-    // and the session follows the class. The server checks this too.
+    // Tick the classes first: the subject list then shows only subjects every
+    // ticked class takes (a subject with no grades on the main portal is for
+    // every class), and the session follows the classes. The server checks
+    // this too.
     (function () {
         var data = JSON.parse(document.getElementById("exam-picker-data").textContent);
-        var klass = document.getElementById("{{ form.klass.id_for_label }}");
+        var boxes = Array.prototype.slice.call(document.querySelectorAll("[data-class-picker] input[type=checkbox]"));
         var subject = document.getElementById("{{ form.subject.id_for_label }}");
         var year = document.getElementById("{{ form.academic_year.id_for_label }}");
-        if (!klass || !subject || klass.disabled) return;
+        if (!boxes.length || !subject || boxes[0].disabled) return;
+        boxes.forEach(function (box) { box.classList.add("accent-primary"); });
         var allOptions = Array.prototype.slice.call(subject.options).map(function (o) { return o.cloneNode(true); });
 
         function refresh() {
-            var info = data.classes[klass.value];
+            var picked = boxes.filter(function (b) { return b.checked; })
+                .map(function (b) { return data.classes[b.value]; })
+                .filter(Boolean);
             var keep = subject.value;
             subject.innerHTML = "";
             allOptions.forEach(function (option) {
                 var grades = data.subjects[option.value];
-                var offered = option.value === "" || (info && (!grades || grades.length === 0 || grades.indexOf(info.grade) !== -1));
+                var offered = option.value === "" || (picked.length > 0 && picked.every(function (info) {
+                    return !grades || grades.length === 0 || grades.indexOf(info.grade) !== -1;
+                }));
                 if (offered) subject.appendChild(option.cloneNode(true));
             });
             subject.value = Array.prototype.some.call(subject.options, function (o) { return o.value === keep; }) ? keep : "";
-            subject.disabled = !info;
-            if (info && year && !year.disabled) year.value = String(info.year);
+            subject.disabled = picked.length === 0;
+            if (picked.length && year && !year.disabled) year.value = String(picked[0].year);
         }
-        klass.addEventListener("change", refresh);
+        boxes.forEach(function (box) { box.addEventListener("change", refresh); });
         refresh();
     })();
 </script>

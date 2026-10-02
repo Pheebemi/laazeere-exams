@@ -37,7 +37,7 @@ PUSH_REQUEST_TIMEOUT_SECONDS = 10
 CLEAR_TIME_BUDGET_SECONDS = 40
 CLEAR_BATCH_SIZE = 10_000
 
-EXAM_RELATED = ("subject", "klass", "created_by__syncedstaff", "created_by__syncedmanager")
+EXAM_RELATED = ("subject", "created_by__syncedstaff", "created_by__syncedmanager")
 
 
 def _render(request, template, section, context=None, status=200):
@@ -54,7 +54,7 @@ def _visible_exams(user):
 
 def _get_exam(request, exam_id):
     try:
-        return _visible_exams(request.user).select_related(*EXAM_RELATED).get(pk=exam_id)
+        return _visible_exams(request.user).select_related(*EXAM_RELATED).prefetch_related("classes").get(pk=exam_id)
     except Exam.DoesNotExist:
         raise Http404("Exam not found")
 
@@ -141,7 +141,8 @@ def home(request):
                 )
             )
             .filter(unpushed__gt=0)
-            .select_related("subject", "klass")
+            .select_related("subject")
+            .prefetch_related("classes")
             .order_by("closes_at")[:5]
         )
         context = {
@@ -153,7 +154,10 @@ def home(request):
                 "in_progress": Submission.objects.filter(status=Submission.Status.IN_PROGRESS).count(),
             },
             "pending_push": pending_push,
-            "drafts": Exam.objects.filter(is_published=False).select_related(*EXAM_RELATED).order_by("-id")[:5],
+            "drafts": Exam.objects.filter(is_published=False)
+            .select_related(*EXAM_RELATED)
+            .prefetch_related("classes")
+            .order_by("-id")[:5],
         }
         return _render(request, "dashboard/home_manager.html", "home", context)
 
@@ -165,7 +169,7 @@ def home(request):
             "published": mine.filter(is_published=True).count(),
             "submitted": Submission.objects.filter(exam__in=mine, status=Submission.Status.SUBMITTED).count(),
         },
-        "recent": mine.select_related("subject", "klass").order_by("-id")[:6],
+        "recent": mine.select_related("subject").prefetch_related("classes").order_by("-id")[:6],
     }
     return _render(request, "dashboard/home_teacher.html", "home", context)
 
@@ -175,6 +179,7 @@ def exam_list(request):
     exams = (
         _visible_exams(request.user)
         .select_related(*EXAM_RELATED)
+        .prefetch_related("classes")
         .annotate(submitted=Count("submissions", filter=Q(submissions__status=Submission.Status.SUBMITTED)))
         .order_by("-opens_at")
     )
@@ -185,7 +190,7 @@ def exam_list(request):
         exams = exams.filter(is_published=True)
     class_id = request.GET.get("class", "")
     if class_id.isdigit():
-        exams = exams.filter(klass_id=class_id)
+        exams = exams.filter(classes=class_id)
     query = request.GET.get("q", "").strip()
     if query:
         exams = exams.filter(subject__name__icontains=query)
@@ -202,7 +207,7 @@ def exam_list(request):
 @dashboard_required
 def exam_results(request, exam_id):
     exam = _get_exam(request, exam_id)
-    submissions = exam.submissions.select_related("student").order_by("student__full_name")
+    submissions = exam.submissions.select_related("student__current_class").order_by("student__full_name")
     counts = dict(submissions.order_by().values_list("status").annotate(count=Count("id")))
     return _render(request, "dashboard/exam_results.html", "exams", {
         "exam": exam,
@@ -212,7 +217,8 @@ def exam_results(request, exam_id):
         "unpushed_count": submissions.filter(
             status=Submission.Status.SUBMITTED, pushed_to_raddai=False
         ).count(),
-        "class_size": SyncedStudent.objects.filter(current_class=exam.klass, is_active=True).count(),
+        "class_size": SyncedStudent.objects.filter(current_class__in=exam.classes.all(), is_active=True).count(),
+        "many_classes": len(exam.class_list) > 1,
     })
 
 
@@ -263,7 +269,8 @@ def results(request):
             ),
         )
         .filter(submitted__gt=0)
-        .select_related("subject", "klass")
+        .select_related("subject")
+        .prefetch_related("classes")
         .order_by("-unpushed", "-closes_at")
     )
     return _render(request, "dashboard/results.html", "results", {"exams": exams})
@@ -420,6 +427,7 @@ def exam_create(request):
         exam = form.save(commit=False)
         exam.created_by = request.user
         exam.save()
+        form.save_m2m()
         messages.success(request, "Exam created. Now add its questions.")
         return redirect("dashboard:exam_edit", exam_id=exam.id)
     return _render(request, "dashboard/exam_create.html", "exam_create", {"form": form})
@@ -549,13 +557,13 @@ def exam_generate_code(request, exam_id):
     Students can't start without one; those already writing are unaffected by
     a replacement.
     """
-    exam = get_object_or_404(Exam.objects.select_related("subject", "klass"), pk=exam_id)
+    exam = get_object_or_404(Exam.objects.select_related("subject").prefetch_related("classes"), pk=exam_id)
     replacing = bool(exam.access_code)
     exam.access_code = new_access_code()
     exam.save(update_fields=["access_code"])
     messages.success(
         request,
-        f"{exam.subject} ({exam.klass}) access code: {exam.access_code}"
+        f"{exam.subject} ({exam.class_names}) access code: {exam.access_code}"
         + (". The old code no longer works." if replacing else ""),
     )
     next_url = request.POST.get("next", "")

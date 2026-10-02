@@ -23,8 +23,13 @@ class QuestionInline(admin.StackedInline):
 
 @admin.register(Exam)
 class ExamAdmin(admin.ModelAdmin):
-    list_display = ("subject", "klass", "term", "score_target", "total_marks", "opens_at", "closes_at", "is_published")
-    list_filter = ("klass", "term", "score_target", "is_published")
+    list_display = ("subject", "class_names", "term", "score_target", "total_marks", "opens_at", "closes_at", "is_published")
+    list_filter = ("classes", "term", "score_target", "is_published")
+    exclude = ("klass",)
+    filter_horizontal = ("classes",)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).prefetch_related("classes")
     inlines = [QuestionInline]
 
 

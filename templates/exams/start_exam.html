@@ -12,7 +12,7 @@
         </div>
 
         <dl class="grid grid-cols-2 gap-px bg-border border-y">
-            <div class="bg-card px-6 py-4"><dt class="text-xs text-muted-foreground">Class</dt><dd class="font-semibold">{{ exam.klass }}</dd></div>
+            <div class="bg-card px-6 py-4"><dt class="text-xs text-muted-foreground">Class</dt><dd class="font-semibold">{{ request.user.syncedstudent.current_class }}</dd></div>
             <div class="bg-card px-6 py-4"><dt class="text-xs text-muted-foreground">Total marks</dt><dd class="font-semibold">{{ exam.total_marks }}</dd></div>
             <div class="bg-card px-6 py-4"><dt class="text-xs text-muted-foreground">Questions</dt><dd class="font-semibold">{{ question_count }}</dd></div>
             <div class="bg-card px-6 py-4"><dt class="text-xs text-muted-foreground">Time allowed</dt><dd class="font-semibold">{{ exam.duration_minutes }} minutes</dd></div>
