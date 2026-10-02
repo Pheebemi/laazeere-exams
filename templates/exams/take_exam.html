@@ -33,6 +33,13 @@
                 <span class="mt-1 block text-xs text-muted-foreground">Tap the picture to see it bigger</span>
             </a>
             {% endif %}
+            {% if question.is_blank %}
+            <label class="block">
+                <span class="sr-only">Your answer to question {{ forloop.counter }}</span>
+                <input type="text" name="question_{{ question.id }}" value="{{ question.saved_text }}" maxlength="200"
+                       autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Type your answer">
+            </label>
+            {% else %}
             <div class="space-y-2.5">
                 {% for choice in question.shuffled_choices %}
                 <label class="choice-card">
@@ -42,6 +49,7 @@
                 </label>
                 {% endfor %}
             </div>
+            {% endif %}
         </fieldset>
         {% endfor %}
 
@@ -91,6 +99,9 @@
     form.querySelectorAll("input[type=radio]:checked").forEach((input) => {
       answers[input.name.replace("question_", "")] = Number(input.value);
     });
+    form.querySelectorAll("input[type=text][name^=question_]").forEach((input) => {
+      if (input.value.trim()) answers[input.name.replace("question_", "")] = input.value.trim();
+    });
     return answers;
   };
 
@@ -126,10 +137,22 @@
     }
   };
 
-  form.addEventListener("change", () => {
+  const queueSave = () => {
     seq += 1;
     pending = { seq, answers: pickedAnswers() };
     save();
+  };
+  form.addEventListener("change", queueSave);
+  // Typed answers save a moment after the student stops typing.
+  let typingTimer = null;
+  form.addEventListener("input", (event) => {
+    if (event.target.type !== "text") return;
+    clearTimeout(typingTimer);
+    typingTimer = setTimeout(queueSave, 800);
+  });
+  // Enter in a text box must not submit the whole exam.
+  form.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && event.target.type === "text") event.preventDefault();
   });
   window.addEventListener("online", save);
 </script>

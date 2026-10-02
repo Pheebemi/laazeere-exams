@@ -4,12 +4,30 @@
 </div>
 {% endif %}
 
+<div data-question-kind>
+    <p class="text-sm font-semibold mb-2">Question type</p>
+    <div class="flex flex-wrap gap-2">
+        {% for value, label in form.fields.kind.choices %}
+        <label class="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium cursor-pointer has-checked:border-primary has-checked:bg-secondary">
+            <input type="radio" name="kind" value="{{ value }}" class="accent-primary"
+                   {% if form.kind.value|default:"mcq" == value %}checked{% endif %}>
+            {{ label }}
+        </label>
+        {% endfor %}
+    </div>
+</div>
+
 <div class="grid grid-cols-1 sm:grid-cols-[1fr_8rem] gap-4">
     {% include "includes/field.html" with field=form.text %}
     {% include "includes/field.html" with field=form.marks %}
 </div>
 
-<div>
+<div data-kind-block="blank" class="hidden">
+    {% include "includes/field.html" with field=form.accepted_answers %}
+    <p class="field-help">Tip: write the blank in the question with underscores, e.g. "The capital of Nigeria is ____."</p>
+</div>
+
+<div data-kind-block="mcq">
     <p class="text-sm font-semibold">Options</p>
     <p class="field-help mb-2">Fill in 2&ndash;6 options and tick the correct one. Leave extra rows blank.</p>
     <div class="space-y-2">
@@ -81,5 +99,20 @@
             };
             img.src = url;
         });
+    });
+</script>
+
+<script>
+    // Show the options for multiple choice, or the answer box for fill in the blank.
+    document.querySelectorAll("[data-question-kind]").forEach(function (picker) {
+        var form = picker.closest("form");
+        function sync() {
+            var kind = (form.querySelector("input[name=kind]:checked") || {}).value || "mcq";
+            form.querySelectorAll("[data-kind-block]").forEach(function (block) {
+                block.classList.toggle("hidden", block.getAttribute("data-kind-block") !== kind);
+            });
+        }
+        picker.addEventListener("change", sync);
+        sync();
     });
 </script>
