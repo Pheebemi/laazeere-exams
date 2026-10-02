@@ -50,7 +50,7 @@ Every new account starts with its own ID/username as the password and is nudged 
 - **Shuffled order**: each student gets the questions, and each question's options, in their own order (seeded by their submission, so a refresh keeps it). Grading is by choice id, so order never affects marks.
 - **One device at a time**: a student logging in on a second phone/computer signs out the first one ("opened on another device").
 - **Autosave**: every tap is saved to the server (one small update, newest wins by sequence number). A reload, network drop, or logging out and back in (code needed again) restores the picks; if the final submit never arrives, the saved picks are used when the script closes. Only options belonging to each question are accepted.
-- **Scores hidden**: students only see "Submitted"; they get their result on the main portal when the school releases it.
+- **Scores**: students see their score right after submitting, and on their exam list.
 
 ## Creating an exam
 
