@@ -1,3 +1,4 @@
+import re
 import secrets
 
 from django.conf import settings
@@ -109,6 +110,10 @@ class Exam(models.Model):
                 f"must total exactly {self.total_marks}."
             )
         for i, q in enumerate(questions, start=1):
+            if q.is_blank:
+                if not any(normalize_answer(a) for a in q.accepted_answers):
+                    problems.append(f"Question {i} needs at least one correct answer.")
+                continue
             choices = list(q.choices.all())
             if len(choices) < 2:
                 problems.append(f"Question {i} needs at least 2 options.")
@@ -122,9 +127,21 @@ class Exam(models.Model):
         return f"{self.subject} - {self.klass} - {self.get_score_target_display()}"
 
 
+def normalize_answer(text):
+    """How typed answers are compared: case, extra spaces and end punctuation don't matter."""
+    return re.sub(r"\s+", " ", str(text or "")).strip().rstrip(".,!?;:").strip().casefold()
+
+
 class Question(models.Model):
+    class Kind(models.TextChoices):
+        MULTIPLE_CHOICE = "mcq", "Multiple choice"
+        BLANK = "blank", "Fill in the blank"
+
     exam = models.ForeignKey(Exam, on_delete=models.CASCADE, related_name="questions")
+    kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.MULTIPLE_CHOICE)
     text = models.TextField()
+    # Fill in the blank: every answer that counts as correct, as the teacher typed them.
+    accepted_answers = models.JSONField(default=list, blank=True)
     order = models.PositiveIntegerField(default=0)
     marks = models.PositiveIntegerField(default=1)
     # Optional picture under the question (diagram, map, shape…). In
@@ -137,6 +154,14 @@ class Question(models.Model):
 
     def __str__(self):
         return self.text[:60]
+
+    @property
+    def is_blank(self):
+        return self.kind == self.Kind.BLANK
+
+    def is_correct_text(self, text):
+        typed = normalize_answer(text)
+        return bool(typed) and typed in {normalize_answer(answer) for answer in self.accepted_answers}
 
 
 class Choice(models.Model):
@@ -187,6 +212,8 @@ class Answer(models.Model):
     submission = models.ForeignKey(Submission, on_delete=models.CASCADE, related_name="answers")
     question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name="answers")
     selected_choice = models.ForeignKey(Choice, on_delete=models.SET_NULL, null=True, blank=True)
+    # Fill in the blank: what the student typed.
+    text_answer = models.CharField(max_length=200, blank=True, default="")
 
     class Meta:
         unique_together = ["submission", "question"]

@@ -562,3 +562,33 @@ class SubjectForClassTests(AuthoringTestBase):
         response = self.client.get(reverse("dashboard:exam_create"))
         self.assertContains(response, 'id="exam-picker-data"')
         self.assertContains(response, "[10, 11, 12]")
+
+
+class BlankQuestionAuthoringTests(AuthoringTestBase):
+    def test_teacher_adds_a_fill_in_the_blank_question(self):
+        self.client.post(reverse("dashboard:question_add", args=[self.exam.id]), {
+            "kind": "blank", "text": "2 + 2 = ____", "marks": 10, "accepted_answers": "4\nfour\n",
+        })
+        question = self.exam.questions.get()
+        self.assertEqual((question.kind, question.accepted_answers), ("blank", ["4", "four"]))
+        self.assertFalse(question.choices.exists())
+        self.assertEqual(self.exam.publish_problems(), [])
+
+    def test_blank_question_needs_an_answer(self):
+        response = self.client.post(reverse("dashboard:question_add", args=[self.exam.id]), {
+            "kind": "blank", "text": "2 + 2 = ____", "marks": 10, "accepted_answers": "  ",
+        })
+        self.assertContains(response, "Type the correct answer.", status_code=400)
+        self.assertFalse(self.exam.questions.exists())
+
+    def test_switching_a_question_between_types(self):
+        self.add_question(marks=10)
+        question = self.exam.questions.get()
+        edit = reverse("dashboard:question_edit", args=[self.exam.id, question.id])
+        self.client.post(edit, {"kind": "blank", "text": "Name it", "marks": 10, "accepted_answers": "B"})
+        question.refresh_from_db()
+        self.assertEqual(question.kind, "blank")
+        self.assertFalse(question.choices.exists())
+        self.client.post(edit, {"kind": "mcq", "text": "Pick", "marks": 10, "correct": 1, "choice_1": "X", "choice_2": "Y"})
+        question.refresh_from_db()
+        self.assertEqual((question.kind, question.accepted_answers, question.choices.count()), ("mcq", [], 2))

@@ -198,7 +198,9 @@ def take_exam(request, exam_id):
         question.shuffled_choices = list(question.choices.all())
         random.Random(f"{submission.pk}-{question.pk}").shuffle(question.shuffled_choices)
         # Autosaved pick, so a reload or coming back after logging out restores it.
-        question.saved_choice_id = saved.get(str(question.pk))
+        value = saved.get(str(question.pk))
+        question.saved_choice_id = value if isinstance(value, int) else None
+        question.saved_text = value if isinstance(value, str) else ""
 
     return render(
         request,
@@ -225,7 +227,11 @@ def save_answers(request, exam_id):
     try:
         payload = json.loads(request.body)
         seq = int(payload["seq"])
-        answers = {str(int(question)): int(choice) for question, choice in payload["answers"].items()}
+        # A picked option is a choice id; a fill-in-the-blank answer is the typed text.
+        answers = {
+            str(int(question)): value.strip()[:200] if isinstance(value, str) else int(value)
+            for question, value in payload["answers"].items()
+        }
     except (ValueError, KeyError, TypeError, AttributeError):
         return JsonResponse({"saved": False, "reason": "Bad request."}, status=400)
 
@@ -279,6 +285,10 @@ def _finalize_submission(submission, post_data):
         answers = []
         for question in submission.exam.questions.prefetch_related("choices"):
             raw = post_data.get(f"question_{question.id}") or draft.get(str(question.id))
+            if question.is_blank:
+                text = str(raw or "").strip()[:200]
+                answers.append(Answer(submission=submission, question=question, text_answer=text))
+                continue
             try:
                 choice_id = int(raw)
             except (TypeError, ValueError):

@@ -466,8 +466,10 @@ def _delete_pictures_after_commit(names):
 
 def _save_question(question, cleaned):
     old_picture = question.image.name if question.image else ""
+    question.kind = cleaned["kind"]
     question.text = cleaned["text"].strip()
     question.marks = cleaned["marks"]
+    question.accepted_answers = cleaned.get("answers_list", []) if question.is_blank else []
     if cleaned.get("image"):
         question.image = cleaned["image"]
     elif cleaned.get("remove_image"):
@@ -475,7 +477,7 @@ def _save_question(question, cleaned):
     question.save()
     if old_picture and old_picture != question.image.name:
         _delete_pictures_after_commit([old_picture])
-    question.choices.all().delete()
+    question.choices.all().delete()  # a blank question has no options
     Choice.objects.bulk_create([
         Choice(question=question, text=text, is_correct=(i == cleaned["correct"]), order=order)
         for order, (i, text) in enumerate(sorted(cleaned["filled_choices"].items()))

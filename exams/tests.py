@@ -257,3 +257,49 @@ class AutosaveTests(StudentExamBase):
             reverse("exams:save_answers", args=[self.second_ca.id]), data="not json", content_type="application/json"
         )
         self.assertEqual(response.status_code, 400)
+
+
+class FillInTheBlankTests(StudentExamBase):
+    def setUp(self):
+        super().setUp()
+        self.second_ca.questions.all().delete()
+        self.blank = Question.objects.create(
+            exam=self.second_ca, kind=Question.Kind.BLANK, text="The capital of Nigeria is ____.",
+            marks=10, accepted_answers=["Abuja", "FCT Abuja"],
+        )
+        self.start()
+
+    def submit(self, text):
+        return self.client.post(reverse("exams:submit_exam", args=[self.second_ca.id]), {f"question_{self.blank.id}": text})
+
+    def test_case_spaces_and_end_punctuation_do_not_matter(self):
+        for typed in ("abuja", "  ABUJA. ", "fct   abuja!"):
+            self.assertTrue(self.blank.is_correct_text(typed), typed)
+        for typed in ("Abujaa", "Lagos", ""):
+            self.assertFalse(self.blank.is_correct_text(typed), typed)
+
+    def test_right_answer_scores(self):
+        self.submit("abuja.")
+        submission = Submission.objects.get()
+        self.assertEqual(submission.score, 10)
+        self.assertEqual(Answer.objects.get().text_answer, "abuja.")
+
+    def test_wrong_answer_scores_zero(self):
+        self.submit("Lagos")
+        self.assertEqual(Submission.objects.get().score, 0)
+
+    def test_typed_answer_autosaves_and_counts_when_time_runs_out(self):
+        self.client.post(
+            reverse("exams:save_answers", args=[self.second_ca.id]),
+            data=json.dumps({"seq": 1, "answers": {self.blank.id: "Abuja"}}), content_type="application/json",
+        )
+        page = self.client.get(reverse("exams:take_exam", args=[self.second_ca.id]))
+        self.assertEqual(page.context["questions"][0].saved_text, "Abuja")
+        self.assertContains(page, 'value="Abuja"')
+        Submission.objects.update(started_at=timezone.now() - timedelta(hours=2))
+        self.client.get(reverse("exams:take_exam", args=[self.second_ca.id]))
+        self.assertEqual(Submission.objects.get().score, 10)
+
+    def test_publishing_needs_a_correct_answer(self):
+        Question.objects.filter(pk=self.blank.pk).update(accepted_answers=[])
+        self.assertIn("Question 1 needs at least one correct answer.", self.second_ca.publish_problems())

@@ -6,7 +6,7 @@ from django.conf import settings
 from django.core.files.base import ContentFile
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from exams.models import Exam
+from exams.models import Exam, Question, normalize_answer
 from roster.models import SyncedAcademicYear, SyncedClass, SyncedSubject
 
 MAX_CHOICES = 6
@@ -94,16 +94,24 @@ class ExamForm(forms.ModelForm):
         }
 
 
+MAX_ACCEPTED_ANSWERS = 20
+
+
 class QuestionForm(forms.Form):
+    kind = forms.ChoiceField(
+        label="Question type", choices=Question.Kind.choices, required=False, initial=Question.Kind.MULTIPLE_CHOICE
+    )
     text = forms.CharField(label="Question", widget=forms.Textarea(attrs={"rows": 3}))
     marks = forms.IntegerField(min_value=1)
     image = forms.FileField(
         required=False, label="Picture (optional)", widget=forms.FileInput(attrs={"accept": IMAGE_TYPES})
     )
     remove_image = forms.BooleanField(required=False)
-    correct = forms.IntegerField(
-        min_value=1, max_value=MAX_CHOICES,
-        error_messages={"required": "Pick the correct answer."},
+    correct = forms.IntegerField(min_value=1, max_value=MAX_CHOICES, required=False)
+    accepted_answers = forms.CharField(
+        label="Correct answer(s)", required=False, widget=forms.Textarea(attrs={"rows": 3}),
+        help_text="One per line if more than one answer is right (e.g. Abuja, FCT Abuja). "
+                  "Capital letters, extra spaces and a full stop at the end don't matter.",
     )
 
     def __init__(self, *args, **kwargs):
@@ -132,6 +140,19 @@ class QuestionForm(forms.Form):
 
     def clean(self):
         cleaned = super().clean()
+        cleaned["kind"] = cleaned.get("kind") or Question.Kind.MULTIPLE_CHOICE
+        if cleaned["kind"] == Question.Kind.BLANK:
+            answers = [line.strip() for line in cleaned.get("accepted_answers", "").splitlines() if line.strip()]
+            if not any(normalize_answer(a) for a in answers):
+                self.add_error("accepted_answers", "Type the correct answer.")
+            elif len(answers) > MAX_ACCEPTED_ANSWERS:
+                self.add_error("accepted_answers", f"Keep it to {MAX_ACCEPTED_ANSWERS} answers or fewer.")
+            elif any(len(a) > 200 for a in answers):
+                self.add_error("accepted_answers", "Each answer must be 200 characters or fewer.")
+            cleaned["answers_list"] = answers
+            cleaned["filled_choices"] = {}
+            return cleaned
+
         filled = {
             i: cleaned.get(f"choice_{i}", "").strip()
             for i in range(1, MAX_CHOICES + 1)
@@ -140,14 +161,21 @@ class QuestionForm(forms.Form):
         if len(filled) < 2:
             raise forms.ValidationError("Enter at least 2 options.")
         correct = cleaned.get("correct")
-        if correct and correct not in filled:
+        if not correct:
+            self.add_error("correct", "Pick the correct answer.")
+        elif correct not in filled:
             raise forms.ValidationError("The correct answer must be one of the options you filled in.")
         cleaned["filled_choices"] = filled
         return cleaned
 
     @classmethod
     def initial_for(cls, question):
-        initial = {"text": question.text, "marks": question.marks}
+        initial = {
+            "kind": question.kind,
+            "text": question.text,
+            "marks": question.marks,
+            "accepted_answers": "\n".join(question.accepted_answers),
+        }
         for i, choice in enumerate(question.choices.all(), start=1):
             initial[f"choice_{i}"] = choice.text
             if choice.is_correct:

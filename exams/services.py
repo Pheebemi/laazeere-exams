@@ -6,11 +6,16 @@ from django.utils import timezone
 
 
 def grade_submission(submission):
-    """Sum marks for correctly-answered questions. MCQ only, so this is instant."""
+    """Sum marks for correctly-answered questions — options by is_correct, blanks by accepted answers."""
     total = 0
     for answer in submission.answers.select_related("question", "selected_choice"):
-        if answer.selected_choice and answer.selected_choice.is_correct:
-            total += answer.question.marks
+        question = answer.question
+        if question.is_blank:
+            correct = question.is_correct_text(answer.text_answer)
+        else:
+            correct = bool(answer.selected_choice and answer.selected_choice.is_correct)
+        if correct:
+            total += question.marks
     submission.score = total
     submission.save(update_fields=["score"])
     return total
