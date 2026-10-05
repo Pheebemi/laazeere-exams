@@ -22,7 +22,7 @@ from exams.services import push_submission_to_raddai
 from roster.models import SyncedAcademicYear, SyncedClass, SyncedManager, SyncedStaff, SyncedStudent
 
 from .decorators import dashboard_required, is_manager, is_teacher, management_required
-from .forms import ExamForm, QuestionForm
+from .forms import MAX_CHOICES, ExamForm, QuestionForm
 
 # Each push is one HTTP call to the main portal, so a big class can take a
 # while. No new push starts after the budget, and each one waits at most
@@ -500,6 +500,10 @@ def question_add(request, exam_id):
     if blocked:
         return blocked
 
+    done = "done" in request.POST
+    if done and _question_form_is_blank(request):
+        return _finish_exam(request, exam)
+
     question_form = QuestionForm(request.POST, request.FILES)
     if not question_form.is_valid():
         messages.error(request, "Question not added — fix the errors below.")
@@ -509,8 +513,36 @@ def question_add(request, exam_id):
     next_order = (exam.questions.aggregate(m=Max("order"))["m"] or 0) + 1
     with transaction.atomic():
         _save_question(Question(exam=exam, order=next_order), question_form.cleaned_data)
+    if done:
+        return _finish_exam(request, exam, added=True)
     messages.success(request, "Question added.")
     return redirect(reverse("dashboard:exam_edit", args=[exam.id]) + "#questions")
+
+
+def _question_form_is_blank(request):
+    """Done was clicked with nothing typed in the add-question form, so there's no question to add."""
+    typed = [request.POST.get("text", ""), request.POST.get("accepted_answers", "")]
+    typed += [request.POST.get(f"choice_{i}", "") for i in range(1, MAX_CHOICES + 1)]
+    return not any(value.strip() for value in typed) and not request.FILES.get("image")
+
+
+def _finish_exam(request, exam, added=False):
+    """
+    The teacher clicked Done: say plainly whether the exam is ready or what's
+    still missing. Teachers go back to their exam list; management goes to the
+    top of the exam, where the Publish button is.
+    """
+    problems = exam.publish_problems()
+    saved = "Question added. " if added else ""
+    if problems:
+        messages.warning(request, f"{saved}Saved as a draft. Still to do: " + " ".join(problems))
+    elif is_manager(request.user):
+        messages.success(request, f"{saved}{exam.subject} is ready — click Publish when students should see it.")
+    else:
+        messages.success(request, f"{saved}{exam.subject} is ready. Management will review and publish it.")
+    if is_manager(request.user):
+        return redirect("dashboard:exam_edit", exam_id=exam.id)
+    return redirect("dashboard:exam_list")
 
 
 @dashboard_required

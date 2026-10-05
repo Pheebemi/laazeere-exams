@@ -681,3 +681,47 @@ class MultiClassExamTests(AuthoringTestBase):
         link_single_class_exams(sender=None)
         self.assertEqual(list(legacy.classes.all()), [self.jss1b])
         self.assertEqual(list(self.exam.classes.all()), [self.klass])  # exams that already have classes are untouched
+
+
+class DoneButtonTests(AuthoringTestBase):
+    """Done lets a teacher finish: it adds anything typed, then says whether the exam is ready."""
+
+    def done(self, data=None):
+        return self.client.post(
+            reverse("dashboard:question_add", args=[self.exam.id]), {"done": "1", **(data or {})}, follow=True
+        )
+
+    def test_done_with_empty_form_lists_whats_missing(self):
+        response = self.done({"text": "", "marks": "", "choice_1": " "})
+        self.assertRedirects(response, reverse("dashboard:exam_list"))
+        self.assertFalse(self.exam.questions.exists())
+        self.assertContains(response, "Saved as a draft. Still to do: Add at least one question.")
+
+    def test_done_adds_the_typed_question_then_finishes(self):
+        response = self.done({"text": "2+2?", "marks": 10, "correct": 2, "choice_1": "3", "choice_2": "4"})
+        self.assertRedirects(response, reverse("dashboard:exam_list"))
+        self.assertEqual(self.exam.questions.count(), 1)
+        self.assertContains(response, "Question added. Mathematics is ready. Management will review and publish it.")
+
+    def test_done_with_a_half_filled_question_shows_the_errors(self):
+        response = self.done({"text": "2+2?", "marks": 10, "choice_1": "4"})
+        self.assertEqual(response.status_code, 400)
+        self.assertContains(response, "Question not added", status_code=400)
+        self.assertFalse(self.exam.questions.exists())
+
+    def test_marks_short_of_the_total_are_reported(self):
+        self.add_question(marks=4)
+        response = self.done()
+        self.assertContains(response, "Question marks add up to 4")
+
+    def test_manager_goes_back_to_the_publish_button(self):
+        self.add_question(marks=10)
+        self.login_as_manager()
+        response = self.done()
+        self.assertRedirects(response, reverse("dashboard:exam_edit", args=[self.exam.id]))
+        self.assertContains(response, "is ready — click Publish")
+
+    def test_page_has_done_and_add_buttons(self):
+        response = self.client.get(reverse("dashboard:exam_edit", args=[self.exam.id]))
+        self.assertContains(response, 'name="done"')
+        self.assertContains(response, "Add question</button>")
