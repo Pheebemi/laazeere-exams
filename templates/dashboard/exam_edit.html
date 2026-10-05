@@ -147,8 +147,11 @@
         {% csrf_token %}
         <h2 class="text-lg font-extrabold">Add a question</h2>
         {% include "dashboard/_question_fields.html" with form=question_form %}
-        <div class="flex justify-end">
-            <button type="submit" class="btn-primary">Add question</button>
+        <div class="flex flex-wrap items-center justify-end gap-2">
+            <p class="mr-auto text-xs text-muted-foreground">Finished? Click Done. Anything typed above is added first.</p>
+            {# Add question comes first in the page so pressing Enter adds a question, not Done. #}
+            <button type="submit" class="btn-primary order-2">Add question</button>
+            <button type="submit" name="done" value="1" formnovalidate class="btn-outline order-1">Done</button>
         </div>
     </form>
 
