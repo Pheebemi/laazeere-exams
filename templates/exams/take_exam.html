@@ -60,6 +60,7 @@
             <div id="pager" class="hidden flex items-center justify-between gap-3">
                 <button type="button" id="prev-btn" class="btn-outline px-5 py-3">&larr; Previous</button>
                 <button type="button" id="next-btn" class="btn-primary px-5 py-3">Next &rarr;</button>
+                <button type="button" id="finish-btn" class="btn-primary px-5 py-3 hidden">Finish &amp; submit</button>
             </div>
         </div>
 
@@ -78,9 +79,23 @@
                     <span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded border bg-card"></span> Not answered</span>
                 </div>
             </div>
+            <p id="submit-hint" class="hidden mt-4 text-xs text-muted-foreground">Go to the last question to submit.</p>
             <button type="submit" id="submit-btn" class="btn-primary w-full py-3.5 mt-4">Submit Exam</button>
         </aside>
     </form>
+
+    {# Asked before every hand-in, so a stray tap can't submit: "Go back" is the highlighted choice. #}
+    <dialog id="submit-dialog" aria-labelledby="submit-dialog-title"
+            class="m-auto w-[calc(100%-2rem)] max-w-md rounded-xl border bg-card p-6 text-card-foreground shadow-xl backdrop:bg-black/50">
+        <h2 id="submit-dialog-title" class="text-lg font-extrabold">Submit your exam?</h2>
+        <p id="submit-summary" class="mt-2 text-sm"></p>
+        <p id="submit-unanswered" class="mt-2 text-sm font-semibold text-destructive"></p>
+        <p class="mt-2 text-sm text-muted-foreground">You can't change your answers after submitting.</p>
+        <div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button type="button" id="confirm-submit" class="btn-danger px-5 py-3">Yes, submit</button>
+            <button type="button" id="cancel-submit" class="btn-primary px-5 py-3" autofocus>Go back</button>
+        </div>
+    </dialog>
 </section>
 
 <script>
@@ -194,7 +209,11 @@
   const prevBtn = document.getElementById("prev-btn");
   const nextBtn = document.getElementById("next-btn");
   const answeredCountEl = document.getElementById("answered-count");
+  const finishBtn = document.getElementById("finish-btn");
+  const submitBtn = document.getElementById("submit-btn");
+  const submitHint = document.getElementById("submit-hint");
   let current = 0;  // always open on the first question
+  let reachedEnd = false;  // Submit only shows once the last question has been seen
 
   const isAnswered = (el) =>
     !!el.querySelector("input[type=radio]:checked") ||
@@ -224,7 +243,12 @@
     questionEls.forEach((el, i) => el.classList.toggle("hidden", i !== current));
     prevBtn.disabled = current === 0;
     prevBtn.classList.toggle("invisible", current === 0);
-    nextBtn.classList.toggle("invisible", current === questionEls.length - 1);
+    const onLast = current === questionEls.length - 1;
+    nextBtn.classList.toggle("hidden", onLast);
+    finishBtn.classList.toggle("hidden", !onLast);
+    reachedEnd = reachedEnd || onLast;
+    submitBtn.classList.toggle("hidden", !reachedEnd);
+    submitHint.classList.toggle("hidden", reachedEnd);
     refreshPalette();
     window.scrollTo({ top: 0 });
   };
@@ -240,11 +264,30 @@
     show(current);
   }
 
-  document.getElementById("submit-btn").addEventListener("click", (event) => {
+  // Handing in always goes through the dialog; only "Yes, submit" sends the form.
+  const dialog = document.getElementById("submit-dialog");
+  const openSubmitDialog = (event) => {
+    if (event) event.preventDefault();
     const answered = questionEls.length ? refreshPalette() : 0;
-    const left = questionEls.length - answered;
-    const warning = left > 0 ? `You have not answered ${left} question${left === 1 ? "" : "s"}. ` : "";
-    if (!confirm(`${warning}Submit your answers? You cannot change them afterwards.`)) event.preventDefault();
+    const unanswered = questionEls.map((el, i) => (isAnswered(el) ? null : i + 1)).filter(Boolean);
+    document.getElementById("submit-summary").textContent =
+      `You have answered ${answered} of ${questionEls.length} question${questionEls.length === 1 ? "" : "s"}.`;
+    document.getElementById("submit-unanswered").textContent = unanswered.length
+      ? `Not answered: question${unanswered.length === 1 ? "" : "s"} ${unanswered.join(", ")}.`
+      : "";
+    if (typeof dialog.showModal === "function") {
+      dialog.showModal();
+    } else if (confirm("Submit your answers? You cannot change them afterwards.")) {
+      form.submit();  // very old browsers without <dialog>
+    }
+  };
+  submitBtn.addEventListener("click", openSubmitDialog);
+  finishBtn.addEventListener("click", openSubmitDialog);
+  document.getElementById("cancel-submit").addEventListener("click", () => dialog.close());
+  document.getElementById("confirm-submit").addEventListener("click", (event) => {
+    event.currentTarget.disabled = true;
+    event.currentTarget.textContent = "Submitting…";
+    form.submit();
   });
 </script>
 {% endblock %}
