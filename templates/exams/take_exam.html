@@ -84,14 +84,19 @@
 </section>
 
 <script>
-  const deadline = new Date("{{ deadline.isoformat }}").getTime();
+  // Count down from the seconds the server says are left, timed with
+  // performance.now() so a wrong or changed device clock can't shorten or
+  // stretch the exam. The server enforces the real deadline either way.
+  const endsAt = performance.now() + {{ remaining_seconds }} * 1000;
   const timerEl = document.getElementById("timer");
   const form = document.getElementById("exam-form");
   const tick = () => {
-    const remaining = Math.max(0, Math.floor((deadline - Date.now()) / 1000));
-    const mins = Math.floor(remaining / 60);
+    const remaining = Math.max(0, Math.ceil((endsAt - performance.now()) / 1000));
+    const hours = Math.floor(remaining / 3600);
+    const mins = Math.floor((remaining % 3600) / 60);
     const secs = remaining % 60;
-    timerEl.textContent = `${mins}:${secs.toString().padStart(2, "0")}`;
+    const pad = (n) => n.toString().padStart(2, "0");
+    timerEl.textContent = hours ? `${hours}:${pad(mins)}:${pad(secs)}` : `${mins}:${pad(secs)}`;
     if (remaining <= 60) {
       timerEl.classList.remove("text-primary", "bg-secondary");
       timerEl.classList.add("text-destructive", "bg-red-50");

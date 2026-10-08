@@ -207,7 +207,16 @@ def take_exam(request, exam_id):
     return render(
         request,
         "exams/take_exam.html",
-        {"exam": exam, "questions": questions, "deadline": deadline, "draft_seq": submission.draft_seq},
+        {
+            "exam": exam,
+            "questions": questions,
+            # Seconds left by the server's clock. The page counts down from
+            # this, never from the device's own clock — school PCs are often
+            # set to the wrong time, which used to submit some students in
+            # one second and show others thousands of minutes.
+            "remaining_seconds": max(0, int((deadline - timezone.now()).total_seconds())),
+            "draft_seq": submission.draft_seq,
+        },
     )
 
 
