@@ -7,7 +7,7 @@ from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
 from PIL import Image
@@ -725,3 +725,57 @@ class DoneButtonTests(AuthoringTestBase):
         response = self.client.get(reverse("dashboard:exam_edit", args=[self.exam.id]))
         self.assertContains(response, 'name="done"')
         self.assertContains(response, "Add question</button>")
+
+
+class ResetSubmissionTests(AuthoringTestBase):
+    """Management can wipe a student's attempt so they can take the exam again."""
+
+    def setUp(self):
+        super().setUp()
+        self.add_question(marks=10)
+        self.submission = self.start_submission()
+        Submission.objects.filter(pk=self.submission.pk).update(status="submitted", submitted_at=timezone.now(), score=0)
+        Answer.objects.create(submission=self.submission, question=self.exam.questions.get())
+        self.url = reverse("dashboard:reset_submission", args=[self.exam.id, self.submission.id])
+
+    def test_manager_resets_an_attempt(self):
+        self.login_as_manager()
+        response = self.client.post(self.url, follow=True)
+        self.assertRedirects(response, reverse("dashboard:exam_results", args=[self.exam.id]))
+        self.assertContains(response, "attempt was reset")
+        self.assertFalse(Submission.objects.exists())
+        self.assertFalse(Answer.objects.exists())
+
+    def test_student_can_start_again_after_reset(self):
+        self.login_as_manager()
+        self.client.post(self.url)
+        self.exam.is_published = True
+        self.exam.access_code = "123456"
+        self.exam.save()
+        student = Client()
+        student.login(username="STU1", password="pw")
+        student.post(reverse("exams:start_exam", args=[self.exam.id]), {"access_code": "123456"})
+        self.assertEqual(Submission.objects.get().status, Submission.Status.IN_PROGRESS)
+
+    def test_score_already_on_main_portal_is_not_reset(self):
+        Submission.objects.filter(pk=self.submission.pk).update(pushed_to_raddai=True)
+        self.login_as_manager()
+        response = self.client.post(self.url, follow=True)
+        self.assertContains(response, "already on the main portal")
+        self.assertTrue(Submission.objects.exists())
+
+    def test_teacher_cannot_reset(self):
+        self.client.post(self.url)
+        self.assertTrue(Submission.objects.exists())
+
+    def test_submission_must_belong_to_the_exam(self):
+        self.login_as_manager()
+        response = self.client.post(reverse("dashboard:reset_submission", args=[self.exam.id + 1, self.submission.id]))
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(Submission.objects.exists())
+
+    def test_reset_button_only_for_management(self):
+        results = reverse("dashboard:exam_results", args=[self.exam.id])
+        self.assertNotContains(self.client.get(results), self.url)
+        self.login_as_manager()
+        self.assertContains(self.client.get(results), self.url)

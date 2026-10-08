@@ -61,12 +61,21 @@
                 <td class="px-4 py-3">{% if submission.status == "submitted" %}Submitted{% else %}<span class="text-accent-foreground font-semibold">Writing…</span>{% endif %}</td>
                 <td class="px-4 py-3 font-semibold">{% if submission.status == "submitted" %}{{ submission.score|floatformat:"-2" }} / {{ exam.total_marks }}{% else %}—{% endif %}</td>
                 <td class="px-4 py-3">
-                    {% if submission.pushed_to_raddai %}
-                    <span class="rounded-full bg-secondary text-secondary-foreground px-2.5 py-1 text-xs font-semibold">Sent</span>
-                    {% elif submission.status == "submitted" %}
-                    <span class="rounded-full bg-accent text-accent-foreground px-2.5 py-1 text-xs font-semibold">Not sent</span>
-                    {% if submission.push_error %}<p class="field-error">Failed: {{ submission.push_error }}</p>{% endif %}
-                    {% else %}—{% endif %}
+                    <div class="flex flex-wrap items-center gap-2">
+                        {% if submission.pushed_to_raddai %}
+                        <span class="rounded-full bg-secondary text-secondary-foreground px-2.5 py-1 text-xs font-semibold">Sent</span>
+                        {% elif submission.status == "submitted" %}
+                        <span class="rounded-full bg-accent text-accent-foreground px-2.5 py-1 text-xs font-semibold">Not sent</span>
+                        {% else %}<span>—</span>{% endif %}
+                        {% if dashboard_is_manager and not submission.pushed_to_raddai %}
+                        <form method="post" action="{% url 'dashboard:reset_submission' exam.id submission.id %}"
+                              onsubmit="return confirm('Reset {{ submission.student.full_name|escapejs }}\'s attempt? Their answers and score are deleted and they can take the exam again.');">
+                            {% csrf_token %}
+                            <button type="submit" class="btn-outline px-2.5 py-1 text-xs">Reset</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                    {% if submission.push_error and not submission.pushed_to_raddai %}<p class="field-error">Failed: {{ submission.push_error }}</p>{% endif %}
                 </td>
             </tr>
             {% empty %}
