@@ -337,3 +337,23 @@ class MultiClassStudentTests(StudentExamBase):
             client = self.users[username]
             self.assertEqual(client.get(reverse("exams:exam_list")).context["rows"], [], username)
             self.assertEqual(client.get(reverse("exams:start_exam", args=[self.second_ca.id])).status_code, 404, username)
+
+
+class TimerTests(StudentExamBase):
+    """The countdown comes from the server's clock, not the student's device clock."""
+
+    def test_page_gets_seconds_left_from_the_server(self):
+        self.second_ca.duration_minutes = 3
+        self.second_ca.save()
+        self.start()
+        response = self.client.get(reverse("exams:take_exam", args=[self.second_ca.id]))
+        self.assertTrue(175 <= response.context["remaining_seconds"] <= 180)
+        self.assertContains(response, f"performance.now() + {response.context['remaining_seconds']} * 1000")
+
+    def test_seconds_left_never_negative(self):
+        self.start()
+        submission = Submission.objects.get()
+        Submission.objects.filter(pk=submission.pk).update(started_at=timezone.now() - timedelta(minutes=29, seconds=59.5))
+        response = self.client.get(reverse("exams:take_exam", args=[self.second_ca.id]))
+        if response.status_code == 200:
+            self.assertGreaterEqual(response.context["remaining_seconds"], 0)
