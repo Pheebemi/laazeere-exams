@@ -58,6 +58,8 @@ Teachers or management log into `/dashboard/`, click **+ New exam**, pick subjec
 
 An exam can be set for **several classes** at once (e.g. JSS1 A and JSS1 B): they share the questions, the access code and one results page. Only subjects every ticked class takes can be picked.
 
+**Equations and formulas:** pasting from Word keeps subscripts and superscripts as characters (H₂O, x², Fe³⁺) and writes Word Equation Editor formulas out as text (e.g. x=(-b±√(b²-4ac))/(2a)). The question form also has x²/x₂ buttons and common symbols. Fill-in-the-blank marking treats H₂O and H2O as the same answer.
+
 A question is either **multiple choice** or **fill in the blank**. For a blank, the teacher lists one or more accepted answers (one per line) and it's marked automatically: capital letters, extra spaces and end punctuation are ignored, but spelling must match.
 
 A question can carry one optional **picture** (diagram, map, shape…). Big phone photos are shrunk in the browser before upload (Vercel refuses request bodies over ~4.5 MB), then the server re-encodes every picture as a WebP of at most 1600 px (typically 100–200 KB) so a whole class loads it quickly. Pictures live in Vercel Blob and students load them straight from its CDN. Replacing or removing a picture, or deleting its question or exam, deletes the old file from Blob.

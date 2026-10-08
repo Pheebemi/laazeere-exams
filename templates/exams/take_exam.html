@@ -27,7 +27,7 @@
                 <legend class="sr-only">Question {{ forloop.counter }}</legend>
                 <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Question {{ forloop.counter }} of {{ questions|length }}</p>
                 <p class="font-semibold mb-4">
-                    {{ question.text }}
+                    <span class="whitespace-pre-line">{{ question.text }}</span>
                     <span class="font-normal text-muted-foreground text-sm">({{ question.marks }} mark{{ question.marks|pluralize }})</span>
                 </p>
                 {% if question.image %}

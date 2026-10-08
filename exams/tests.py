@@ -357,3 +357,21 @@ class TimerTests(StudentExamBase):
         response = self.client.get(reverse("exams:take_exam", args=[self.second_ca.id]))
         if response.status_code == 200:
             self.assertGreaterEqual(response.context["remaining_seconds"], 0)
+
+
+class FormulaAnswerTests(TestCase):
+    """Answers saved with subscripts/superscripts (pasted from Word) still match what students can type."""
+
+    def test_plain_digits_match_subscripts_and_superscripts(self):
+        from .models import normalize_answer
+
+        self.assertEqual(normalize_answer("H₂O"), normalize_answer("h2o"))
+        self.assertEqual(normalize_answer("x²"), normalize_answer("X2"))
+        self.assertEqual(normalize_answer("SO₄²⁻"), normalize_answer("so42-"))
+        self.assertNotEqual(normalize_answer("H₂O"), normalize_answer("H2O2"))
+
+    def test_blank_question_marks_typed_formula_correct(self):
+        question = Question(kind=Question.Kind.BLANK, accepted_answers=["H₂O"])
+        self.assertTrue(question.is_correct_text("H2O"))
+        self.assertTrue(question.is_correct_text("H₂O"))
+        self.assertFalse(question.is_correct_text("HO2"))

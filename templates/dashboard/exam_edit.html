@@ -96,7 +96,7 @@
             <div class="card p-5">
                 <div class="flex items-start justify-between gap-4">
                     <p class="font-semibold">
-                        <span class="text-primary">{{ forloop.counter }}.</span> {{ question.text }}
+                        <span class="text-primary">{{ forloop.counter }}.</span> <span class="whitespace-pre-line">{{ question.text }}</span>
                         <span class="font-normal text-muted-foreground text-sm">({{ question.marks }} mark{{ question.marks|pluralize }})</span>
                     </p>
                     {% if can_edit and not locked %}
