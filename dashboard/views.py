@@ -278,6 +278,28 @@ def results(request):
 
 @management_required
 @require_POST
+def reset_submission(request, exam_id, submission_id):
+    """
+    Wipe one student's attempt so they can take the exam again (e.g. their
+    attempt went wrong). Refused once the score is on the main portal, so the
+    two can't disagree.
+    """
+    submission = get_object_or_404(
+        Submission.objects.select_related("student"), pk=submission_id, exam_id=exam_id
+    )
+    if submission.pushed_to_raddai:
+        messages.error(
+            request,
+            f"{submission.student.full_name}'s score is already on the main portal, so it can't be reset here.",
+        )
+    else:
+        submission.delete()  # its answers go with it
+        messages.success(request, f"{submission.student.full_name}'s attempt was reset — they can take the exam again.")
+    return redirect("dashboard:exam_results", exam_id=exam_id)
+
+
+@management_required
+@require_POST
 def push_results(request, exam_id):
     exam = get_object_or_404(Exam, pk=exam_id)
     _push_submissions(request, _unpushed_submissions().filter(exam=exam))

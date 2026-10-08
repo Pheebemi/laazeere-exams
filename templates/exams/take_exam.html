@@ -194,9 +194,7 @@
   const prevBtn = document.getElementById("prev-btn");
   const nextBtn = document.getElementById("next-btn");
   const answeredCountEl = document.getElementById("answered-count");
-  const positionKey = "exam-{{ exam.id }}-question";
-  let current = 0;
-  try { current = Math.min(questionEls.length - 1, Math.max(0, Number(sessionStorage.getItem(positionKey)) || 0)); } catch (e) {}
+  let current = 0;  // always open on the first question
 
   const isAnswered = (el) =>
     !!el.querySelector("input[type=radio]:checked") ||
@@ -228,7 +226,6 @@
     prevBtn.classList.toggle("invisible", current === 0);
     nextBtn.classList.toggle("invisible", current === questionEls.length - 1);
     refreshPalette();
-    try { sessionStorage.setItem(positionKey, String(current)); } catch (e) {}
     window.scrollTo({ top: 0 });
   };
 
