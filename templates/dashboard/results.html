@@ -38,15 +38,22 @@
                     {% if exam.unpushed %}<span class="rounded-full bg-accent text-accent-foreground px-2.5 py-1 text-xs font-bold">{{ exam.unpushed }}</span>
                     {% else %}<span class="rounded-full bg-secondary text-secondary-foreground px-2.5 py-1 text-xs font-semibold">All sent</span>{% endif %}
                 </td>
-                <td class="px-4 py-3 text-right">
-                    {% if exam.unpushed %}
-                    <form method="post" action="{% url 'dashboard:push_results' exam.id %}"
-                          onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='Pushing…';">
-                        {% csrf_token %}
-                        <input type="hidden" name="next" value="results">
-                        <button type="submit" class="btn-outline whitespace-nowrap">Push {{ exam.unpushed }}</button>
-                    </form>
-                    {% endif %}
+                <td class="px-4 py-3">
+                    <div class="flex items-center justify-end gap-2">
+                        {% if exam.unpushed %}
+                        <form method="post" action="{% url 'dashboard:push_results' exam.id %}"
+                              onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').textContent='Pushing…';">
+                            {% csrf_token %}
+                            <input type="hidden" name="next" value="results">
+                            <button type="submit" class="btn-outline whitespace-nowrap">Push {{ exam.unpushed }}</button>
+                        </form>
+                        <form method="post" action="{% url 'dashboard:delete_scores' exam.id %}"
+                              onsubmit="if (!confirm('Delete ALL {{ exam.unpushed }} score{{ exam.unpushed|pluralize }} for {{ exam.subject|escapejs }} ({{ exam.get_score_target_display|escapejs }})?\n\nEvery student\'s answers and score are deleted and they can all take it again. This cannot be undone.')) return false; this.querySelector('button').disabled=true; this.querySelector('button').textContent='Deleting…';">
+                            {% csrf_token %}
+                            <button type="submit" class="btn-danger whitespace-nowrap">Delete</button>
+                        </form>
+                        {% endif %}
+                    </div>
                 </td>
             </tr>
             {% empty %}
