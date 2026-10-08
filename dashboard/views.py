@@ -300,6 +300,36 @@ def reset_submission(request, exam_id, submission_id):
 
 @management_required
 @require_POST
+def delete_scores(request, exam_id):
+    """
+    Wipe every student's attempt at this exam (scores, answers, anyone still
+    writing) so the whole class can take it again. Scores already on the main
+    portal are kept, like a single Reset, so the two can't disagree.
+    """
+    exam = get_object_or_404(Exam.objects.select_related("subject"), pk=exam_id)
+    attempts = exam.submissions.filter(pushed_to_raddai=False)
+    with transaction.atomic():
+        Answer.objects.filter(submission__in=attempts).delete()
+        deleted, _ = attempts.delete()
+    kept = exam.submissions.count()
+    if deleted:
+        messages.success(
+            request,
+            f"Deleted {deleted} score{'s' if deleted != 1 else ''} for {exam.subject} — those students can take it again.",
+        )
+    else:
+        messages.info(request, "Nothing to delete.")
+    if kept:
+        messages.warning(
+            request,
+            f"{kept} score{'s are' if kept != 1 else ' is'} already on the main portal, so "
+            f"{'they were' if kept != 1 else 'it was'} kept.",
+        )
+    return redirect("dashboard:results")
+
+
+@management_required
+@require_POST
 def push_results(request, exam_id):
     exam = get_object_or_404(Exam, pk=exam_id)
     _push_submissions(request, _unpushed_submissions().filter(exam=exam))

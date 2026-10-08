@@ -779,3 +779,49 @@ class ResetSubmissionTests(AuthoringTestBase):
         self.assertNotContains(self.client.get(results), self.url)
         self.login_as_manager()
         self.assertContains(self.client.get(results), self.url)
+
+
+class DeleteScoresTests(AuthoringTestBase):
+    """Management can delete every score for an exam at once so everyone can retake it."""
+
+    def setUp(self):
+        super().setUp()
+        self.add_question(marks=10)
+        question = self.exam.questions.get()
+        self.students = []
+        for i, (status, pushed) in enumerate([("submitted", False), ("submitted", False), ("in_progress", False), ("submitted", True)]):
+            user = User.objects.create_user(username=f"S{i}", password="pw")
+            student = SyncedStudent.objects.create(raddai_id=100 + i, student_id=f"S{i}", full_name=f"Student {i}", current_class=self.klass, user=user)
+            submission = Submission.objects.create(student=student, exam=self.exam, status=status, score=5, pushed_to_raddai=pushed)
+            Answer.objects.create(submission=submission, question=question)
+        self.other_exam = Exam.objects.create(
+            subject=self.subject, academic_year=self.year, term="first", score_target="ca2",
+            opens_at=timezone.now(), closes_at=timezone.now() + timedelta(hours=1),
+        )
+        Submission.objects.create(student=student, exam=self.other_exam, status="submitted", score=7)
+        self.url = reverse("dashboard:delete_scores", args=[self.exam.id])
+
+    def test_manager_deletes_every_score_not_on_the_main_portal(self):
+        self.login_as_manager()
+        response = self.client.post(self.url, follow=True)
+        self.assertRedirects(response, reverse("dashboard:results"))
+        self.assertContains(response, "Deleted 3 scores for Mathematics")
+        self.assertContains(response, "1 score is already on the main portal")
+        self.assertEqual(list(self.exam.submissions.values_list("pushed_to_raddai", flat=True)), [True])
+        self.assertEqual(Answer.objects.filter(submission__exam=self.exam).count(), 1)
+        self.assertEqual(self.other_exam.submissions.count(), 1)  # other exams untouched
+
+    def test_teacher_cannot_delete(self):
+        self.client.post(self.url)
+        self.assertEqual(self.exam.submissions.count(), 4)
+
+    def test_get_does_nothing(self):
+        self.login_as_manager()
+        self.assertEqual(self.client.get(self.url).status_code, 405)
+        self.assertEqual(self.exam.submissions.count(), 4)
+
+    def test_results_page_has_delete_next_to_push(self):
+        self.login_as_manager()
+        response = self.client.get(reverse("dashboard:results"))
+        self.assertContains(response, self.url)
+        self.assertContains(response, "Push 2")
