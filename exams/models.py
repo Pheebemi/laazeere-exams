@@ -1,4 +1,5 @@
 import re
+import unicodedata
 import secrets
 
 from django.conf import settings
@@ -144,8 +145,14 @@ class Exam(models.Model):
 
 
 def normalize_answer(text):
-    """How typed answers are compared: case, extra spaces and end punctuation don't matter."""
-    return re.sub(r"\s+", " ", str(text or "")).strip().rstrip(".,!?;:").strip().casefold()
+    """
+    How typed answers are compared: case, extra spaces and end punctuation
+    don't matter, and neither do subscript/superscript characters — a student
+    typing "H2O" or "x2" matches an answer saved as "H₂O" or "x²" (NFKC).
+    """
+    text = unicodedata.normalize("NFKC", str(text or ""))
+    text = re.sub("[\u2010-\u2015\u2212]", "-", text)  # ⁻ becomes "−" (minus sign); students type "-"
+    return re.sub(r"\s+", " ", text).strip().rstrip(".,!?;:").strip().casefold()
 
 
 class Question(models.Model):

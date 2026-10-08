@@ -1,3 +1,4 @@
+{% load static %}
 {% if form.non_field_errors %}
 <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-destructive">
     {% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}
@@ -16,6 +17,13 @@
         {% endfor %}
     </div>
 </div>
+
+<div>
+    <p class="text-sm font-semibold">Symbols</p>
+    <p class="field-help mb-2">For equations and formulas. Select text and click x² or x₂ to raise or lower it (e.g. H2O → H₂O), or click a symbol to insert it. Pasting from Word keeps subscripts, superscripts and Word equations.</p>
+    <div data-symbol-toolbar class="flex flex-wrap gap-1.5"></div>
+</div>
+<script src="{% static 'js/word_paste.js' %}" defer></script>
 
 <div class="grid grid-cols-1 sm:grid-cols-[1fr_8rem] gap-4">
     {% include "includes/field.html" with field=form.text %}
