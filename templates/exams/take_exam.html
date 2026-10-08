@@ -1,7 +1,7 @@
 {% extends "layout/base.html" %}
 {% block title %}{{ exam.subject }} — Laazeere Academy Exam Portal{% endblock %}
 {% block content %}
-<section class="max-w-2xl mx-auto px-4 sm:px-6 py-8">
+<section class="max-w-5xl mx-auto px-4 sm:px-6 py-8">
     <div class="flex items-center justify-between mb-6 sticky top-16 bg-background/95 backdrop-blur py-3 z-30">
         <div>
             <span class="inline-block rounded-md px-2 py-0.5 text-xs font-bold uppercase tracking-wide
@@ -17,44 +17,69 @@
         </div>
     </div>
 
-    <form method="post" action="{% url 'exams:submit_exam' exam.id %}" id="exam-form" class="space-y-5">
+    {# One question at a time: the page script hides all but the current one. Without the script every question shows, one under another. #}
+    <form method="post" action="{% url 'exams:submit_exam' exam.id %}" id="exam-form"
+          class="grid grid-cols-1 lg:grid-cols-[1fr_15rem] gap-6 items-start">
         {% csrf_token %}
-        {% for question in questions %}
-        <fieldset class="card p-5">
-            <legend class="sr-only">Question {{ forloop.counter }}</legend>
-            <p class="font-semibold mb-4">
-                <span class="text-primary">{{ forloop.counter }}.</span> {{ question.text }}
-                <span class="font-normal text-muted-foreground text-sm">({{ question.marks }} mark{{ question.marks|pluralize }})</span>
-            </p>
-            {% if question.image %}
-            <a href="{{ question.image.url }}" target="_blank" rel="noopener" class="block mb-4" title="Open the picture full size">
-                <img src="{{ question.image.url }}" alt="Picture for question {{ forloop.counter }}"
-                     class="max-h-80 max-w-full rounded-lg border bg-card object-contain">
-                <span class="mt-1 block text-xs text-muted-foreground">Tap the picture to see it bigger</span>
-            </a>
-            {% endif %}
-            {% if question.is_blank %}
-            <label class="block">
-                <span class="sr-only">Your answer to question {{ forloop.counter }}</span>
-                <input type="text" name="question_{{ question.id }}" value="{{ question.saved_text }}" maxlength="200"
-                       autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Type your answer">
-            </label>
-            {% else %}
-            <div class="space-y-2.5">
-                {% for choice in question.shuffled_choices %}
-                <label class="choice-card">
-                    <input type="radio" name="question_{{ question.id }}" value="{{ choice.id }}" class="mt-0.5 accent-primary"
-                           {% if choice.id == question.saved_choice_id %}checked{% endif %}>
-                    <span class="text-sm">{{ choice.text }}</span>
+        <div class="space-y-5 min-w-0">
+            {% for question in questions %}
+            <fieldset class="card p-5" data-question>
+                <legend class="sr-only">Question {{ forloop.counter }}</legend>
+                <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Question {{ forloop.counter }} of {{ questions|length }}</p>
+                <p class="font-semibold mb-4">
+                    {{ question.text }}
+                    <span class="font-normal text-muted-foreground text-sm">({{ question.marks }} mark{{ question.marks|pluralize }})</span>
+                </p>
+                {% if question.image %}
+                <a href="{{ question.image.url }}" target="_blank" rel="noopener" class="block mb-4" title="Open the picture full size">
+                    <img src="{{ question.image.url }}" alt="Picture for question {{ forloop.counter }}"
+                         class="max-h-80 max-w-full rounded-lg border bg-card object-contain">
+                    <span class="mt-1 block text-xs text-muted-foreground">Tap the picture to see it bigger</span>
+                </a>
+                {% endif %}
+                {% if question.is_blank %}
+                <label class="block">
+                    <span class="sr-only">Your answer to question {{ forloop.counter }}</span>
+                    <input type="text" name="question_{{ question.id }}" value="{{ question.saved_text }}" maxlength="200"
+                           autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Type your answer">
                 </label>
-                {% endfor %}
-            </div>
-            {% endif %}
-        </fieldset>
-        {% endfor %}
+                {% else %}
+                <div class="space-y-2.5">
+                    {% for choice in question.shuffled_choices %}
+                    <label class="choice-card">
+                        <input type="radio" name="question_{{ question.id }}" value="{{ choice.id }}" class="mt-0.5 accent-primary"
+                               {% if choice.id == question.saved_choice_id %}checked{% endif %}>
+                        <span class="text-sm">{{ choice.text }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </fieldset>
+            {% endfor %}
 
-        <button type="submit" class="btn-primary w-full py-3.5"
-                onclick="return confirm('Submit your answers? You cannot change them afterwards.');">Submit Exam</button>
+            <div id="pager" class="hidden flex items-center justify-between gap-3">
+                <button type="button" id="prev-btn" class="btn-outline px-5 py-3">&larr; Previous</button>
+                <button type="button" id="next-btn" class="btn-primary px-5 py-3">Next &rarr;</button>
+            </div>
+        </div>
+
+        <aside class="card p-4 lg:sticky lg:top-44">
+            <div id="palette-box" class="hidden">
+                <p class="text-sm font-semibold">Questions</p>
+                <p id="answered-count" class="text-xs text-muted-foreground mt-0.5">&nbsp;</p>
+                <div id="palette" class="mt-3 grid grid-cols-5 gap-2">
+                    {% for question in questions %}
+                    <button type="button" data-goto="{{ forloop.counter0 }}" aria-label="Go to question {{ forloop.counter }}"
+                            class="h-10 rounded-lg border text-sm font-semibold tabular-nums transition">{{ forloop.counter }}</button>
+                    {% endfor %}
+                </div>
+                <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded bg-primary"></span> Answered</span>
+                    <span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded border bg-card"></span> Not answered</span>
+                </div>
+            </div>
+            <button type="submit" id="submit-btn" class="btn-primary w-full py-3.5 mt-4">Submit Exam</button>
+        </aside>
     </form>
 </section>
 
@@ -155,5 +180,69 @@
     if (event.key === "Enter" && event.target.type === "text") event.preventDefault();
   });
   window.addEventListener("online", save);
+
+  // One question per page, with Previous/Next and a numbered palette that
+  // marks answered questions. Every question stays in the same form, so
+  // autosave and Submit see all answers whichever one is showing.
+  const questionEls = Array.from(form.querySelectorAll("[data-question]"));
+  const paletteButtons = Array.from(form.querySelectorAll("[data-goto]"));
+  const prevBtn = document.getElementById("prev-btn");
+  const nextBtn = document.getElementById("next-btn");
+  const answeredCountEl = document.getElementById("answered-count");
+  const positionKey = "exam-{{ exam.id }}-question";
+  let current = 0;
+  try { current = Math.min(questionEls.length - 1, Math.max(0, Number(sessionStorage.getItem(positionKey)) || 0)); } catch (e) {}
+
+  const isAnswered = (el) =>
+    !!el.querySelector("input[type=radio]:checked") ||
+    Array.from(el.querySelectorAll("input[type=text]")).some((input) => input.value.trim() !== "");
+
+  const refreshPalette = () => {
+    let answered = 0;
+    questionEls.forEach((el, i) => {
+      const done = isAnswered(el);
+      if (done) answered += 1;
+      const button = paletteButtons[i];
+      button.classList.toggle("bg-primary", done);
+      button.classList.toggle("text-primary-foreground", done);
+      button.classList.toggle("border-primary", done);
+      button.classList.toggle("bg-card", !done);
+      button.classList.toggle("ring-2", i === current);
+      button.classList.toggle("ring-ring", i === current);
+      button.classList.toggle("ring-offset-2", i === current);
+      if (i === current) button.setAttribute("aria-current", "step"); else button.removeAttribute("aria-current");
+    });
+    answeredCountEl.textContent = `${answered} of ${questionEls.length} answered`;
+    return answered;
+  };
+
+  const show = (index) => {
+    current = Math.min(questionEls.length - 1, Math.max(0, index));
+    questionEls.forEach((el, i) => el.classList.toggle("hidden", i !== current));
+    prevBtn.disabled = current === 0;
+    prevBtn.classList.toggle("invisible", current === 0);
+    nextBtn.classList.toggle("invisible", current === questionEls.length - 1);
+    refreshPalette();
+    try { sessionStorage.setItem(positionKey, String(current)); } catch (e) {}
+    window.scrollTo({ top: 0 });
+  };
+
+  if (questionEls.length) {
+    document.getElementById("pager").classList.remove("hidden");
+    document.getElementById("palette-box").classList.remove("hidden");
+    prevBtn.addEventListener("click", () => show(current - 1));
+    nextBtn.addEventListener("click", () => show(current + 1));
+    paletteButtons.forEach((button) => button.addEventListener("click", () => show(Number(button.dataset.goto))));
+    form.addEventListener("change", refreshPalette);
+    form.addEventListener("input", refreshPalette);
+    show(current);
+  }
+
+  document.getElementById("submit-btn").addEventListener("click", (event) => {
+    const answered = questionEls.length ? refreshPalette() : 0;
+    const left = questionEls.length - answered;
+    const warning = left > 0 ? `You have not answered ${left} question${left === 1 ? "" : "s"}. ` : "";
+    if (!confirm(`${warning}Submit your answers? You cannot change them afterwards.`)) event.preventDefault();
+  });
 </script>
 {% endblock %}
