@@ -4,6 +4,7 @@ import secrets
 
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.http import Http404, JsonResponse
@@ -57,19 +58,47 @@ def _get_student_exam(exam_id, student, require_published=True):
     return exam
 
 
+def expand_student_id(text):
+    """
+    "001" -> "LAZ-SS-0001". Only digits are expanded (and 1, 001, 0001 all mean
+    student 1); anything with letters is returned as typed, so a student whose
+    ID has another prefix types the whole thing.
+    """
+    text = (text or "").strip()
+    prefix = settings.STUDENT_ID_PREFIX
+    if prefix and text.isdigit():
+        return f"{prefix}{int(text):03d}"
+    return text
+
+
+def _login_key(group, request):
+    # Count "001" and "LAZ-SS-0001" as the same account, so the limit can't be dodged by alternating them.
+    return expand_student_id(request.POST.get("username", ""))
+
+
+def _login_page(request):
+    return render(request, "exams/login.html", {"id_prefix": settings.STUDENT_ID_PREFIX})
+
+
 # Limited per student ID, not per IP: a whole computer lab shares one public
 # IP (and behind Vercel's proxy the IP may not even be the student's), so an
 # IP limit would lock out most of a class logging in at the start of an exam.
-@ratelimit(key="post:username", rate="10/m", method="POST", block=False)
+@ratelimit(key=_login_key, rate="10/m", method="POST", block=False)
 def student_login(request):
     if getattr(request, "limited", False):
         messages.error(request, "Too many login attempts. Please wait a moment and try again.")
-        return render(request, "exams/login.html")
+        return _login_page(request)
 
     if request.method == "POST":
-        username = request.POST.get("username", "").strip()
+        username = expand_student_id(request.POST.get("username", ""))
         password = request.POST.get("password", "")
-        user = authenticate(request, username=username, password=password)
+        # A password typed as just digits is the short form of the starter
+        # password (their ID), so try that first, then the digits as typed.
+        user = None
+        for candidate in dict.fromkeys([expand_student_id(password), password]):
+            user = authenticate(request, username=username, password=candidate)
+            if user is not None:
+                break
         if user is not None and hasattr(user, "syncedstudent"):
             login(request, user)
             # This session becomes the only one allowed; any other device is signed out (student_required).
@@ -79,7 +108,7 @@ def student_login(request):
             return redirect("exams:exam_list")
         messages.error(request, "Invalid student ID or password.")
 
-    return render(request, "exams/login.html")
+    return _login_page(request)
 
 
 @login_required(login_url="exams:student_login")

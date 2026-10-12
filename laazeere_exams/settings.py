@@ -129,6 +129,12 @@ CACHES = {
 # attempts" — the counter only exists to slow down password guessing.
 RATELIMIT_FAIL_OPEN = True
 
+# Students type only the end of their ID on the login page: with this prefix,
+# "001" becomes LAZ-SS-0001 (for both the ID and the starter password, which is
+# the ID). Anything with letters in it is used as typed, so other classes still
+# type their full ID. Set STUDENT_ID_PREFIX to an empty value to turn it off.
+STUDENT_ID_PREFIX = env("STUDENT_ID_PREFIX", "LAZ-SS-0")
+
 
 # The default hasher stays first (preferred); the starter hasher only exists
 # so sync_roster can create accounts quickly — see core/hashers.py.

@@ -3,7 +3,7 @@ from datetime import timedelta
 from unittest import mock
 
 from django.contrib.auth import get_user_model
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -375,3 +375,93 @@ class FormulaAnswerTests(TestCase):
         self.assertTrue(question.is_correct_text("H2O"))
         self.assertTrue(question.is_correct_text("H₂O"))
         self.assertFalse(question.is_correct_text("HO2"))
+
+
+class ShortStudentIdLoginTests(TestCase):
+    """Students type "001" and the login page fills in LAZ-SS-0 for both the ID and the starter password."""
+
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        year = SyncedAcademicYear.objects.create(raddai_id=1, name="Y", start_date="2026-09-01", end_date="2027-07-31")
+        klass = SyncedClass.objects.create(raddai_id=1, name="SS1 A", grade=10, academic_year=year)
+        for raddai_id, student_id, password in (
+            (1, "LAZ-SS-0001", "LAZ-SS-0001"),
+            (2, "LAZ-SS-0300", "LAZ-SS-0300"),
+            (3, "LAZ-JSS-0001", "LAZ-JSS-0001"),
+            (4, "LAZ-SS-0007", "123456"),  # changed to an all-digits password
+        ):
+            user = User.objects.create_user(username=student_id, password=password)
+            SyncedStudent.objects.create(raddai_id=raddai_id, student_id=student_id, full_name=student_id, current_class=klass, user=user)
+        self.url = reverse("exams:student_login")
+
+    def log_in(self, username, password):
+        client = Client()
+        response = client.post(self.url, {"username": username, "password": password})
+        return client, response
+
+    def assertLoggedInAs(self, username, password, student_id):
+        client, response = self.log_in(username, password)
+        self.assertRedirects(response, reverse("exams:exam_list"), msg_prefix=f"{username!r}/{password!r}")
+        self.assertEqual(client.get(reverse("exams:exam_list")).wsgi_request.user.username, student_id)
+
+    def test_expand_student_id(self):
+        from .views import expand_student_id
+
+        self.assertEqual(expand_student_id("001"), "LAZ-SS-0001")
+        self.assertEqual(expand_student_id(" 1 "), "LAZ-SS-0001")
+        self.assertEqual(expand_student_id("0001"), "LAZ-SS-0001")
+        self.assertEqual(expand_student_id("300"), "LAZ-SS-0300")
+        self.assertEqual(expand_student_id("LAZ-SS-0001"), "LAZ-SS-0001")
+        self.assertEqual(expand_student_id("LAZ-JSS-0001"), "LAZ-JSS-0001")
+        self.assertEqual(expand_student_id(""), "")
+
+    def test_short_id_and_short_password(self):
+        self.assertLoggedInAs("001", "001", "LAZ-SS-0001")
+        self.assertLoggedInAs("300", "300", "LAZ-SS-0300")
+
+    def test_other_ways_of_typing_the_digits(self):
+        self.assertLoggedInAs("1", "1", "LAZ-SS-0001")
+        self.assertLoggedInAs("0001", "0001", "LAZ-SS-0001")
+
+    def test_full_id_and_password_still_work_and_can_be_mixed(self):
+        self.assertLoggedInAs("LAZ-SS-0001", "LAZ-SS-0001", "LAZ-SS-0001")
+        self.assertLoggedInAs("001", "LAZ-SS-0001", "LAZ-SS-0001")
+        self.assertLoggedInAs("LAZ-SS-0001", "001", "LAZ-SS-0001")
+
+    def test_other_classes_type_their_whole_id(self):
+        self.assertLoggedInAs("LAZ-JSS-0001", "LAZ-JSS-0001", "LAZ-JSS-0001")
+
+    def test_all_digit_password_that_is_not_the_id_still_works(self):
+        self.assertLoggedInAs("007", "123456", "LAZ-SS-0007")
+
+    def test_wrong_digits_are_refused(self):
+        for username, password in (("002", "002"), ("001", "002"), ("001", "999"), ("001", "")):
+            _, response = self.log_in(username, password)
+            self.assertContains(response, "Invalid student ID or password", msg_prefix=f"{username!r}/{password!r}")
+
+    def test_short_form_does_not_log_in_someone_without_that_account(self):
+        _, response = self.log_in("003", "003")
+        self.assertContains(response, "Invalid student ID or password")
+
+    @mock.patch("django_ratelimit.core.time.time", return_value=1_800_000_000)
+    def test_short_and_full_id_share_one_limit(self, _frozen_clock):
+        client = Client()
+        for i in range(10):
+            client.post(self.url, {"username": "001" if i % 2 else "LAZ-SS-0001", "password": "wrong"})
+        response = client.post(self.url, {"username": "001", "password": "001"})
+        self.assertContains(response, "Too many login attempts")
+
+    def test_login_page_shows_the_prefix_on_id_and_password(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.content.decode().count(">LAZ-SS-0</span>"), 2)
+        self.assertNotContains(response, "LAZ-JSS-")  # no note about other classes while only SS sits the CBT
+
+    @override_settings(STUDENT_ID_PREFIX="")
+    def test_switched_off_means_full_ids_only(self):
+        response = self.client.get(self.url)
+        self.assertNotContains(response, ">LAZ-SS-0</span>")
+        _, refused = self.log_in("001", "001")
+        self.assertContains(refused, "Invalid student ID or password")
+        self.assertLoggedInAs("LAZ-SS-0001", "LAZ-SS-0001", "LAZ-SS-0001")
