@@ -456,7 +456,7 @@ class ShortStudentIdLoginTests(TestCase):
     def test_login_page_shows_the_prefix_on_id_and_password(self):
         response = self.client.get(self.url)
         self.assertEqual(response.content.decode().count(">LAZ-SS-0</span>"), 2)
-        self.assertContains(response, "LAZ-JSS-")  # the hint for other classes
+        self.assertNotContains(response, "LAZ-JSS-")  # no note about other classes while only SS sits the CBT
 
     @override_settings(STUDENT_ID_PREFIX="")
     def test_switched_off_means_full_ids_only(self):
