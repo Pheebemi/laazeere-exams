@@ -7,30 +7,15 @@ the other is a silent no-op).
 """
 
 from django.core.management.base import BaseCommand
-from django.utils import timezone
 
-from exams.models import Submission
-from exams.views import _finalize_submission
+from exams.views import finalize_expired_submissions
 
 
 class Command(BaseCommand):
     help = "Force-submit expired in-progress exam submissions."
 
     def handle(self, *args, **options):
-        now = timezone.now()
-        candidates = Submission.objects.filter(status=Submission.Status.IN_PROGRESS).select_related(
-            "exam", "student"
-        )
-
-        finalized = 0
-        for submission in candidates:
-            deadline = min(
-                submission.exam.closes_at,
-                submission.started_at + timezone.timedelta(minutes=submission.exam.duration_minutes),
-            )
-            if now >= deadline:
-                _finalize_submission(submission, {})
-                finalized += 1
-                self.stdout.write(f"Force-submitted: {submission}")
-
-        self.stdout.write(self.style.SUCCESS(f"Done. {finalized} submission(s) force-submitted."))
+        # The management pages do the same thing whenever they are opened;
+        # this command is for running it by hand or on a schedule.
+        closed, left = finalize_expired_submissions(budget_seconds=600)
+        self.stdout.write(self.style.SUCCESS(f"Done. {closed} submission(s) force-submitted, {left} left."))
