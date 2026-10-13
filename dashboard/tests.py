@@ -825,3 +825,90 @@ class DeleteScoresTests(AuthoringTestBase):
         response = self.client.get(reverse("dashboard:results"))
         self.assertContains(response, self.url)
         self.assertContains(response, "Push 2")
+
+
+class ExpiredAttemptsTests(AuthoringTestBase):
+    """Students who leave without submitting must not stay on "Writing" forever."""
+
+    def setUp(self):
+        super().setUp()
+        self.add_question(marks=10, correct=2)
+        self.question = self.exam.questions.get()
+        self.right = self.question.choices.get(is_correct=True)
+        self.exam.duration_minutes = 5
+        self.exam.opens_at = timezone.now() - timedelta(hours=3)
+        self.exam.closes_at = timezone.now() + timedelta(hours=3)
+        self.exam.save()
+        self.stuck = self.new_attempt("S0", started_minutes_ago=60, draft={str(self.question.id): self.right.id})
+        self.stuck_blank = self.new_attempt("S1", started_minutes_ago=60, draft={})
+        self.live = self.new_attempt("S2", started_minutes_ago=1, draft={})
+
+    def new_attempt(self, name, started_minutes_ago, draft):
+        user = User.objects.create_user(username=name, password="pw")
+        student = SyncedStudent.objects.create(
+            raddai_id=500 + SyncedStudent.objects.count(), student_id=name, full_name=f"Student {name}",
+            current_class=self.klass, user=user,
+        )
+        submission = Submission.objects.create(student=student, exam=self.exam, draft_answers=draft)
+        Submission.objects.filter(pk=submission.pk).update(started_at=timezone.now() - timedelta(minutes=started_minutes_ago))
+        return submission
+
+    def test_results_page_closes_and_grades_expired_attempts(self):
+        self.login_as_manager()
+        response = self.client.get(reverse("dashboard:exam_results", args=[self.exam.id]), follow=True)
+        self.assertContains(response, "Closed 2 attempts whose time was up")
+        self.stuck.refresh_from_db()
+        self.stuck_blank.refresh_from_db()
+        self.live.refresh_from_db()
+        self.assertEqual((self.stuck.status, float(self.stuck.score)), ("submitted", 10.0))  # saved answer counted
+        self.assertEqual((self.stuck_blank.status, float(self.stuck_blank.score)), ("submitted", 0.0))
+        self.assertEqual(self.live.status, "in_progress")  # still inside their time
+        self.assertEqual(response.context["in_progress_count"], 1)
+        self.assertEqual(response.context["submitted_count"], 2)
+
+    def test_deadline_is_the_earlier_of_closing_time_and_duration(self):
+        Exam.objects.filter(pk=self.exam.pk).update(closes_at=timezone.now() - timedelta(minutes=1))
+        self.login_as_manager()
+        self.client.get(reverse("dashboard:exam_results", args=[self.exam.id]))
+        self.live.refresh_from_db()
+        self.assertEqual(self.live.status, "submitted")  # the exam closed while they were still inside their 5 minutes
+
+    def test_nothing_to_close_says_nothing(self):
+        Submission.objects.filter(pk__in=[self.stuck.pk, self.stuck_blank.pk]).delete()
+        self.login_as_manager()
+        response = self.client.get(reverse("dashboard:exam_results", args=[self.exam.id]), follow=True)
+        self.assertNotContains(response, "whose time was up")
+
+    @mock.patch("dashboard.views.push_submission_to_raddai", return_value=(True, None))
+    def test_push_all_counts_attempts_that_were_stuck(self, push):
+        self.login_as_manager()
+        self.client.post(reverse("dashboard:push_all"))
+        self.assertEqual(push.call_count, 2)  # both formerly stuck attempts, not the one still writing
+        self.live.refresh_from_db()
+        self.assertEqual(self.live.status, "in_progress")
+
+    @mock.patch("dashboard.views.push_submission_to_raddai", return_value=(True, None))
+    def test_push_for_one_exam_closes_that_exams_attempts_first(self, push):
+        self.login_as_manager()
+        self.client.post(reverse("dashboard:push_results", args=[self.exam.id]))
+        self.assertEqual(push.call_count, 2)
+
+    def test_overview_and_results_list_close_them_too(self):
+        self.login_as_manager()
+        self.client.get(reverse("dashboard:home"))
+        self.stuck.refresh_from_db()
+        self.assertEqual(self.stuck.status, "submitted")
+        another = self.new_attempt("S3", started_minutes_ago=90, draft={})
+        self.client.get(reverse("dashboard:results"))
+        another.refresh_from_db()
+        self.assertEqual(another.status, "submitted")
+
+    def test_management_command_still_works(self):
+        from io import StringIO
+        from django.core.management import call_command
+
+        out = StringIO()
+        call_command("auto_submit_expired", stdout=out)
+        self.assertIn("2 submission(s) force-submitted", out.getvalue())
+        self.live.refresh_from_db()
+        self.assertEqual(self.live.status, "in_progress")

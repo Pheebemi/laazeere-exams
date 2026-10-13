@@ -19,6 +19,7 @@ from django_ratelimit.decorators import ratelimit
 
 from exams.models import Answer, Choice, Exam, Question, Submission, new_access_code
 from exams.services import push_submission_to_raddai
+from exams.views import finalize_expired_submissions
 from roster.models import SyncedAcademicYear, SyncedClass, SyncedManager, SyncedStaff, SyncedStudent
 
 from .decorators import dashboard_required, is_manager, is_teacher, management_required
@@ -73,6 +74,23 @@ def _edit_blocked(request, exam, questions=False):
         messages.error(request, "Students have already started this exam — questions can't be changed.")
         return redirect("dashboard:exam_edit", exam_id=exam.id)
     return None
+
+
+def _close_expired(request, exam=None, budget_seconds=20):
+    """
+    Hand in any attempt whose time ran out (the student left without
+    submitting) so it stops showing as "Writing" and its saved answers count.
+    Runs before management counts or pushes results.
+    """
+    closed, left = finalize_expired_submissions(exam, budget_seconds=budget_seconds)
+    if closed:
+        messages.info(
+            request,
+            f"Closed {closed} attempt{'s' if closed != 1 else ''} whose time was up — "
+            "the answers they had saved were graded.",
+        )
+    if left:
+        messages.warning(request, f"{left} more to close — open this page again to continue.")
 
 
 def _unpushed_submissions():
@@ -133,6 +151,7 @@ def change_password(request):
 def home(request):
     now = timezone.now()
     if is_manager(request.user):
+        _close_expired(request, budget_seconds=5)
         pending_push = (
             Exam.objects.annotate(
                 unpushed=Count(
@@ -207,6 +226,7 @@ def exam_list(request):
 @dashboard_required
 def exam_results(request, exam_id):
     exam = _get_exam(request, exam_id)
+    _close_expired(request, exam)
     submissions = exam.submissions.select_related("student__current_class").order_by("student__full_name")
     counts = dict(submissions.order_by().values_list("status").annotate(count=Count("id")))
     return _render(request, "dashboard/exam_results.html", "exams", {
@@ -260,6 +280,7 @@ def _push_submissions(request, submissions):
 
 @management_required
 def results(request):
+    _close_expired(request)
     exams = (
         Exam.objects.annotate(
             submitted=Count("submissions", filter=Q(submissions__status=Submission.Status.SUBMITTED)),
@@ -332,6 +353,7 @@ def delete_scores(request, exam_id):
 @require_POST
 def push_results(request, exam_id):
     exam = get_object_or_404(Exam, pk=exam_id)
+    _close_expired(request, exam)
     _push_submissions(request, _unpushed_submissions().filter(exam=exam))
     if request.POST.get("next") == "results":
         return redirect("dashboard:results")
@@ -341,6 +363,7 @@ def push_results(request, exam_id):
 @management_required
 @require_POST
 def push_all(request):
+    _close_expired(request)
     _push_submissions(request, _unpushed_submissions())
     return redirect("dashboard:results")
 

@@ -1,6 +1,7 @@
 import json
 import random
 import secrets
+import time
 
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
@@ -340,6 +341,34 @@ def _finalize_submission(submission, post_data):
         Answer.objects.bulk_create(answers)
 
     grade_submission(submission)
+
+
+def finalize_expired_submissions(exam=None, budget_seconds=20):
+    """
+    Close attempts whose time is up but were never handed in (the student shut
+    the laptop, lost the network, closed the tab). Same path as a normal
+    submit: the saved answers are graded and the attempt shows as Submitted.
+
+    Nothing runs the auto_submit_expired command on a timer here, so the
+    management pages call this before they count "Writing" or push results.
+    Returns (closed, left) — `left` is non-zero only if the time budget ran out.
+    """
+    now = timezone.now()
+    attempts = Submission.objects.filter(status=Submission.Status.IN_PROGRESS).select_related("exam")
+    if exam is not None:
+        attempts = attempts.filter(exam=exam)
+    expired = [
+        s for s in attempts
+        if now >= min(s.exam.closes_at, s.started_at + timezone.timedelta(minutes=s.exam.duration_minutes))
+    ]
+    stop_at = time.monotonic() + budget_seconds
+    closed = 0
+    for submission in expired:
+        if time.monotonic() > stop_at:
+            break
+        _finalize_submission(submission, {})
+        closed += 1
+    return closed, len(expired) - closed
 
 
 @student_required
