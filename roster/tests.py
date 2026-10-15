@@ -99,3 +99,65 @@ class SyncRosterTests(TestCase):
 
         self.sync(roster_payload([]))
         self.assertEqual(SyncedSubject.objects.get().grades, [7, 8, 9])
+
+
+@override_settings(EXAM_PORTAL_API_KEY="key", RADDAI_API_BASE_URL="https://raddai.test/api")
+class ReAddedStudentTests(TestCase):
+    """A student deleted on the main portal and added back keeps their exam attempts."""
+
+    def sync(self, payload):
+        with mock.patch("roster.management.commands.sync_roster.requests.get") as get:
+            get.return_value.json.return_value = payload
+            output = StringIO()
+            call_command("sync_roster", apply=True, stdout=output)
+        return output.getvalue()
+
+    def payload(self, **student):
+        payload = roster_payload([])
+        payload["students"][0].update(student)
+        return payload
+
+    def test_re_added_student_is_relinked_to_the_new_main_portal_number(self):
+        self.sync(self.payload())
+        before = SyncedStudent.objects.get()
+        output = self.sync(self.payload(id=99))
+        after = SyncedStudent.objects.get()
+        self.assertIn("relink: Amina Bello (LAZ-JS-0001) main-portal id 1 -> 99", output)
+        self.assertEqual((after.pk, after.user_id, after.raddai_id), (before.pk, before.user_id, 99))
+        self.assertEqual(SyncedStudent.objects.count(), 1)
+        self.assertTrue(self.client.login(username="LAZ-JS-0001", password="LAZ-JS-0001"))
+
+    def test_attempts_stay_with_the_student(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from exams.models import Exam, Submission
+        from roster.models import SyncedAcademicYear, SyncedSubject
+
+        self.sync(self.payload())
+        student = SyncedStudent.objects.get()
+        exam = Exam.objects.create(
+            subject=SyncedSubject.objects.get(), academic_year=SyncedAcademicYear.objects.get(), term="first",
+            score_target="ca1", opens_at=timezone.now(), closes_at=timezone.now() + timedelta(hours=1),
+        )
+        attempt = Submission.objects.create(student=student, exam=exam, status="submitted", score=4, pushed_to_raddai=True)
+        self.sync(self.payload(id=99))
+        attempt.refresh_from_db()
+        self.assertEqual(attempt.student.raddai_id, 99)
+
+    def test_name_spacing_and_case_do_not_matter(self):
+        self.sync(self.payload())
+        self.sync(self.payload(id=99, full_name="  AMINA   bello "))
+        self.assertEqual(SyncedStudent.objects.get().raddai_id, 99)
+
+    def test_same_id_given_to_a_different_person_is_not_linked(self):
+        self.sync(self.payload())
+        output = self.sync(self.payload(id=99, full_name="Someone Else"))
+        self.assertIn("skip: Someone Else", output)
+        self.assertEqual(SyncedStudent.objects.get().raddai_id, 1)
+
+    def test_a_second_student_with_the_same_id_while_the_first_still_exists_is_skipped(self):
+        payload = self.payload()
+        payload["students"].append({"id": 2, "student_id": "LAZ-JS-0001", "full_name": "Amina Bello", "current_class_id": 1, "is_active": True})
+        output = self.sync(payload)
+        self.assertEqual(SyncedStudent.objects.count(), 1)
+        self.assertIn("skip: Amina Bello", output)
