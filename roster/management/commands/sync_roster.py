@@ -187,8 +187,23 @@ class Command(BaseCommand):
             f"  [{kind}] skip: {full_name} — login name {username} is already used by another account"
         )
 
+    @staticmethod
+    def _deleted_and_re_added(username, row, current_ids):
+        """
+        The row of a student who was deleted on the main portal and added back
+        with the same student ID. Only when the old main-portal number is gone
+        from the roster and the name is the same, so a student ID that was
+        given to a different person is never linked to someone else's attempts.
+        """
+        old = SyncedStudent.objects.select_related("user").filter(student_id=username).first()
+        if old is None or old.raddai_id in current_ids:
+            return None
+        same_name = " ".join(old.full_name.split()).casefold() == " ".join(row["full_name"].split()).casefold()
+        return old if same_name else None
+
     def _sync_students(self, rows, class_map, apply):
         created = updated = skipped = 0
+        current_ids = {row["id"] for row in rows}
         for row in rows:
             class_pk = class_map.get(row.get("current_class_id"))
             if class_pk is None and row.get("current_class_id") and apply:
@@ -214,6 +229,18 @@ class Command(BaseCommand):
                 self.stdout.write(f"  [student] update: {row['full_name']} ({username})")
                 if apply:
                     _save_person(existing, fields, username)
+            elif relinked := self._deleted_and_re_added(username, row, current_ids):
+                # Deleted on the main portal and added back: a new main-portal
+                # number, but the same person. Keep their login and exam
+                # attempts and just point them at the new number.
+                updated += 1
+                self.stdout.write(
+                    f"  [student] relink: {row['full_name']} ({username}) "
+                    f"main-portal id {relinked.raddai_id} -> {row['id']}"
+                )
+                if apply:
+                    relinked.raddai_id = row["id"]
+                    _save_person(relinked, fields, username)
             elif _username_taken(username):
                 skipped += 1
                 self._skip_clash("student", username, row["full_name"])
