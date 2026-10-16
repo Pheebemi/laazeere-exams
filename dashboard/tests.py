@@ -912,3 +912,95 @@ class ExpiredAttemptsTests(AuthoringTestBase):
         self.assertIn("2 submission(s) force-submitted", out.getvalue())
         self.live.refresh_from_db()
         self.assertEqual(self.live.status, "in_progress")
+
+
+class ReviewAnswersTests(AuthoringTestBase):
+    """Management can see what a student picked next to the answer key."""
+
+    def setUp(self):
+        super().setUp()
+        self.add_question(marks=5, correct=2, text="Capital of Nigeria?")  # options A, B, C; B is right
+        self.add_question(marks=5, correct=1, text="Pick the first letter")
+        self.blank = Question.objects.create(
+            exam=self.exam, kind=Question.Kind.BLANK, text="2 + 2 = ?", marks=2, accepted_answers=["4", "four"], order=9
+        )
+        self.q1, self.q2 = list(self.exam.questions.filter(kind="mcq"))
+        self.submission = self.start_submission()
+        Answer.objects.create(
+            submission=self.submission, question=self.q1, selected_choice=self.q1.choices.get(text="B")
+        )
+        Answer.objects.create(
+            submission=self.submission, question=self.q2, selected_choice=self.q2.choices.get(text="C")
+        )
+        Answer.objects.create(submission=self.submission, question=self.blank, text_answer="Four")
+        Submission.objects.filter(pk=self.submission.pk).update(status="submitted", submitted_at=timezone.now(), score=7)
+        self.url = reverse("dashboard:submission_answers", args=[self.exam.id, self.submission.id])
+
+    def test_manager_sees_pick_and_correct_answer_for_each_question(self):
+        self.login_as_manager()
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        rows = response.context["rows"]
+        self.assertEqual([r["given"] for r in rows], ["B", "C", "Four"])
+        self.assertEqual([r["correct_answer"] for r in rows], ["B", "A", "4 / four"])
+        self.assertEqual([r["is_correct"] for r in rows], [True, False, True])
+        self.assertEqual(response.context["right_count"], 2)
+        self.assertFalse(response.context["key_changed"])
+
+    def test_unanswered_question_shows_no_answer(self):
+        Answer.objects.filter(submission=self.submission, question=self.q2).update(selected_choice=None)
+        self.login_as_manager()
+        response = self.client.get(self.url)
+        self.assertContains(response, "No answer")
+        self.assertEqual(response.context["answered_count"], 2)
+
+    def test_question_added_after_the_exam_counts_as_unanswered(self):
+        Question.objects.create(exam=self.exam, text="Late question", marks=1, order=20)
+        self.login_as_manager()
+        rows = self.client.get(self.url).context["rows"]
+        self.assertEqual(rows[-1]["given"], "")
+        self.assertFalse(rows[-1]["is_correct"])
+
+    def test_notice_when_the_key_was_edited_after_the_exam(self):
+        Submission.objects.filter(pk=self.submission.pk).update(score=12)
+        self.login_as_manager()
+        response = self.client.get(self.url)
+        self.assertTrue(response.context["key_changed"])
+        self.assertContains(response, "edited after this exam")
+
+    def test_teacher_cannot_open_it(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 302)
+        self.assertNotIn("Capital of Nigeria?", response.content.decode())
+
+    def test_student_cannot_open_it(self):
+        student = Client()
+        student.login(username="STU1", password="pw")
+        response = student.get(self.url)
+        self.assertEqual(response.status_code, 302)
+        self.assertNotIn("Capital of Nigeria?", response.content.decode())
+
+    def test_attempt_still_being_written_is_not_reviewable(self):
+        Submission.objects.filter(pk=self.submission.pk).update(status="in_progress")
+        self.login_as_manager()
+        response = self.client.get(self.url, follow=True)
+        self.assertRedirects(response, reverse("dashboard:exam_results", args=[self.exam.id]))
+        self.assertContains(response, "hasn&#x27;t submitted yet")
+
+    def test_submission_must_belong_to_the_exam(self):
+        self.login_as_manager()
+        response = self.client.get(reverse("dashboard:submission_answers", args=[self.exam.id + 1, self.submission.id]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_button_on_results_page_only_for_management(self):
+        results = reverse("dashboard:exam_results", args=[self.exam.id])
+        self.assertNotContains(self.client.get(results), self.url)
+        self.login_as_manager()
+        self.assertContains(self.client.get(results), self.url)
+
+    def test_review_does_not_change_the_score_or_answers(self):
+        self.login_as_manager()
+        self.client.get(self.url)
+        self.submission.refresh_from_db()
+        self.assertEqual(self.submission.score, 7)
+        self.assertEqual(self.submission.answers.count(), 3)

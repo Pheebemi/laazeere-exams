@@ -18,7 +18,7 @@ from django.views.decorators.http import require_POST
 from django_ratelimit.decorators import ratelimit
 
 from exams.models import Answer, Choice, Exam, Question, Submission, new_access_code
-from exams.services import push_submission_to_raddai
+from exams.services import push_submission_to_raddai, review_submission
 from exams.views import finalize_expired_submissions
 from roster.models import SyncedAcademicYear, SyncedClass, SyncedManager, SyncedStaff, SyncedStudent
 
@@ -295,6 +295,33 @@ def results(request):
         .order_by("-unpushed", "-closes_at")
     )
     return _render(request, "dashboard/results.html", "results", {"exams": exams})
+
+
+@management_required
+def submission_answers(request, exam_id, submission_id):
+    """
+    What one student picked for each question, next to the answer key, so
+    management can settle a "that's not my score" dispute. Read-only, and
+    never shown to students.
+    """
+    submission = get_object_or_404(
+        Submission.objects.select_related("student__current_class", "exam__subject", "exam__academic_year"),
+        pk=submission_id,
+        exam_id=exam_id,
+    )
+    if submission.status != Submission.Status.SUBMITTED:
+        messages.info(request, f"{submission.student.full_name} hasn't submitted yet, so there is nothing to review.")
+        return redirect("dashboard:exam_results", exam_id=exam_id)
+    rows, key_marks = review_submission(submission)
+    return _render(request, "dashboard/submission_answers.html", "exams", {
+        "exam": submission.exam,
+        "submission": submission,
+        "rows": rows,
+        "key_marks": key_marks,
+        "key_changed": submission.score is not None and key_marks != submission.score,
+        "answered_count": sum(1 for r in rows if r["given"]),
+        "right_count": sum(1 for r in rows if r["is_correct"]),
+    })
 
 
 @management_required

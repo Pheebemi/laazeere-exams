@@ -67,6 +67,9 @@
                         {% elif submission.status == "submitted" %}
                         <span class="rounded-full bg-accent text-accent-foreground px-2.5 py-1 text-xs font-semibold">Not sent</span>
                         {% else %}<span>—</span>{% endif %}
+                        {% if dashboard_is_manager and submission.status == "submitted" %}
+                        <a href="{% url 'dashboard:submission_answers' exam.id submission.id %}" class="btn-outline px-2.5 py-1 text-xs">View answers</a>
+                        {% endif %}
                         {% if dashboard_is_manager and not submission.pushed_to_raddai %}
                         <form method="post" action="{% url 'dashboard:reset_submission' exam.id submission.id %}"
                               onsubmit="return confirm('Reset {{ submission.student.full_name|escapejs }}\'s attempt? Their answers and score are deleted and they can take the exam again.');">
