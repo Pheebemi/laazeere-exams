@@ -21,6 +21,41 @@ def grade_submission(submission):
     return total
 
 
+def review_submission(submission):
+    """
+    Every question of the exam with what the student answered and what the
+    answer key says, for management reviewing a score dispute. Marking mirrors
+    grade_submission. A question with no saved answer counts as unanswered.
+    Returns (rows, marks_from_key) — the second is what the key as it stands
+    today would score, which differs from submission.score only if a
+    question's answer was edited after the exam.
+    """
+    answers = {a.question_id: a for a in submission.answers.select_related("selected_choice")}
+    rows = []
+    marks = 0
+    for number, question in enumerate(submission.exam.questions.prefetch_related("choices"), start=1):
+        answer = answers.get(question.pk)
+        if question.is_blank:
+            given = (answer.text_answer if answer else "").strip()
+            correct_text = " / ".join(a for a in question.accepted_answers if str(a).strip())
+            is_correct = bool(answer) and question.is_correct_text(answer.text_answer)
+        else:
+            given = answer.selected_choice.text if answer and answer.selected_choice else ""
+            correct_text = " / ".join(c.text for c in question.choices.all() if c.is_correct)
+            is_correct = bool(answer and answer.selected_choice and answer.selected_choice.is_correct)
+        earned = question.marks if is_correct else 0
+        marks += earned
+        rows.append({
+            "number": number,
+            "question": question,
+            "given": given,
+            "correct_answer": correct_text,
+            "is_correct": is_correct,
+            "marks": earned,
+        })
+    return rows, marks
+
+
 def push_submission_to_raddai(submission, timeout=30):
     """
     Push a graded submission's score into the matching Result slot on

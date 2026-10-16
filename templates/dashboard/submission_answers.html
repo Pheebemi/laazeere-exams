@@ -1,0 +1,53 @@
+{% extends "layout/dashboard.html" %}
+{% block title %}{{ submission.student.full_name }} &middot; {{ exam.subject }} answers{% endblock %}
+{% block content %}
+<a href="{% url 'dashboard:exam_results' exam.id %}" class="text-sm text-muted-foreground hover:text-primary">&larr; {{ exam.subject }} results</a>
+<div class="mt-2 mb-6">
+    <h1 class="text-2xl font-extrabold">{{ submission.student.full_name }}</h1>
+    <p class="text-sm text-muted-foreground">
+        {{ submission.student.student_id }}{% if submission.student.current_class %} &middot; {{ submission.student.current_class }}{% endif %}
+        &middot; {{ exam.subject }} &middot; {{ exam.get_score_target_display }} &middot; {{ exam.get_term_display }}, {{ exam.academic_year }}
+    </p>
+</div>
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    {% include "dashboard/_stat.html" with label="Score on record" value=submission.score|floatformat:"-2" highlight=True %}
+    {% include "dashboard/_stat.html" with label="Out of" value=exam.total_marks %}
+    {% include "dashboard/_stat.html" with label="Answered" value=answered_count %}
+    {% include "dashboard/_stat.html" with label="Correct" value=right_count %}
+</div>
+
+{% if key_changed %}
+<div class="rounded-lg border bg-muted px-4 py-3 text-sm mb-6">
+    A question's answer was edited after this exam was written, so the ticks below (worth {{ key_marks|floatformat:"-2" }}) can differ from the score on record ({{ submission.score|floatformat:"-2" }}). The score on record is the one that was sent to the main portal.
+</div>
+{% endif %}
+
+<p class="text-sm text-muted-foreground mb-3">For management only. Students never see this page.</p>
+
+<div class="space-y-3">
+    {% for row in rows %}
+    <div class="card p-5">
+        <div class="flex items-start justify-between gap-4">
+            <p class="font-medium"><span class="text-muted-foreground">{{ row.number }}.</span> {{ row.question.text }}</p>
+            <span class="shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold {% if row.is_correct %}bg-secondary text-secondary-foreground{% else %}bg-accent text-accent-foreground{% endif %}">
+                {% if row.is_correct %}&#10003; {{ row.marks }} / {{ row.question.marks }}{% else %}&#10007; 0 / {{ row.question.marks }}{% endif %}
+            </span>
+        </div>
+        {% if row.question.image %}<img src="{{ row.question.image.url }}" alt="" class="mt-3 max-h-48 rounded-lg border">{% endif %}
+        <dl class="mt-3 grid sm:grid-cols-2 gap-3 text-sm">
+            <div>
+                <dt class="text-muted-foreground">They picked</dt>
+                <dd class="font-semibold">{% if row.given %}{{ row.given }}{% else %}<span class="text-muted-foreground font-normal">No answer</span>{% endif %}</dd>
+            </div>
+            <div>
+                <dt class="text-muted-foreground">Correct answer</dt>
+                <dd class="font-semibold text-primary">{{ row.correct_answer|default:"—" }}</dd>
+            </div>
+        </dl>
+    </div>
+    {% empty %}
+    <div class="card p-10 text-center text-muted-foreground">This exam has no questions.</div>
+    {% endfor %}
+</div>
+{% endblock %}
